@@ -3,10 +3,6 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Sunny,
-  Clock,
-  Loading,
-  WarningFilled,
-  CircleCheckFilled,
   BellFilled,
   ArrowRight,
   Monitor,
@@ -16,22 +12,32 @@ import {
 import { useWorkOrderStore } from '@/stores/workOrder'
 import { ANNOUNCEMENTS, PRIORITY_TAG_TYPE, STATUS_TAG_TYPE } from '@/mock/data'
 import { currentUser, greeting, isOverdue } from '@/utils/helpers'
+import BaseChart from '@/components/BaseChart.vue'
 
 const router = useRouter()
 const store = useWorkOrderStore()
 
-const stats = computed(() => [
-  { label: '待处理工单', value: store.stats.pending, icon: Clock, color: '#1e88e5', bg: '#e8f3fe' },
-  { label: '处理中', value: store.stats.processing, icon: Loading, color: '#e6a23c', bg: '#fdf6ec' },
-  { label: '已逾期', value: store.stats.overdue, icon: WarningFilled, color: '#f56c6c', bg: '#fef0f0' },
-  {
-    label: '本月已完成',
-    value: store.stats.monthDone,
-    icon: CircleCheckFilled,
-    color: '#67c23a',
-    bg: '#f0f9eb',
-  },
-])
+// 工单状态分布（环形饼图），数据实时来自 store.stats
+const pieOption = computed(() => ({
+  tooltip: { trigger: 'item', formatter: '{b}：{c} 条（{d}%）' },
+  legend: { bottom: 0, icon: 'circle', itemWidth: 8, itemHeight: 8 },
+  series: [
+    {
+      name: '工单状态',
+      type: 'pie',
+      radius: ['42%', '68%'],
+      center: ['50%', '44%'],
+      itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
+      label: { show: true, formatter: '{b}\n{c} 条' },
+      data: [
+        { name: '待处理', value: store.stats.pending, itemStyle: { color: '#1e88e5' } },
+        { name: '处理中', value: store.stats.processing, itemStyle: { color: '#e6a23c' } },
+        { name: '已逾期', value: store.stats.overdue, itemStyle: { color: '#f56c6c' } },
+        { name: '本月已完成', value: store.stats.monthDone, itemStyle: { color: '#67c23a' } },
+      ],
+    },
+  ],
+}))
 
 const todayText = computed(() => {
   const d = new Date()
@@ -60,22 +66,20 @@ const openPortal = (name) => ElMessage.info(`「${name}」为演示入口，暂�
       </el-icon>
     </div>
 
-    <!-- 统计卡片 -->
-    <el-row :gutter="16" class="stat-row">
-      <el-col v-for="item in stats" :key="item.label" :span="6">
-        <div class="stat-card">
-          <div class="stat-icon" :style="{ background: item.bg, color: item.color }">
-            <el-icon :size="26">
-              <component :is="item.icon" />
+    <!-- 工单状态饼图 -->
+    <el-card shadow="never" class="panel">
+      <template #header>
+        <div class="panel-header">
+          <span class="panel-title">工单状态总览</span>
+          <el-button text type="primary" @click="router.push('/work-orders')">
+            查看全部<el-icon class="el-icon--right">
+              <ArrowRight />
             </el-icon>
-          </div>
-          <div class="stat-info">
-            <div class="stat-value" :style="{ color: item.color }">{{ item.value }}</div>
-            <div class="stat-label">{{ item.label }}</div>
-          </div>
+          </el-button>
         </div>
-      </el-col>
-    </el-row>
+      </template>
+      <BaseChart :option="pieOption" height="320px" />
+    </el-card>
 
     <el-row :gutter="16">
       <!-- 我的待办 -->
@@ -197,46 +201,6 @@ const openPortal = (name) => ElMessage.info(`「${name}」为演示入口，暂�
 
 .hello-icon {
   opacity: 0.55;
-}
-
-.stat-row {
-  margin-top: 16px;
-}
-
-.stat-card {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 20px 24px;
-  background: #fff;
-  border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(20, 72, 126, 0.06);
-  transition: transform 0.2s;
-}
-
-.stat-card:hover {
-  transform: translateY(-3px);
-}
-
-.stat-icon {
-  width: 54px;
-  height: 54px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.stat-value {
-  font-size: 26px;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.stat-label {
-  margin-top: 2px;
-  font-size: 13px;
-  color: #7d93aa;
 }
 
 .panel {
