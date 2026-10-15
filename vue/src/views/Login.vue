@@ -24,25 +24,25 @@ const rules = {
   ],
 }
 
-const handleLogin = () => {
-
-  loginFormRef.value.validate((valid) => {
-    if (!valid) return
-    loading.value = true
-  login(loginForm).then(()=>{
-    router.push(route.query.redirect || '/workbench')
-   })
-
-
-
-   })
+const handleLogin = async () => {
+  if (loading.value) return // 防重复提交
+  try {
+    await loginFormRef.value.validate()
+  } catch {
+    return // 校验未通过，rules 已就地提示
   }
-
-
-
-    // 模拟登录请求：暂不做角色权限，校验通过即写入登录态
-
-
+  loading.value = true
+  try {
+    const { token, user } = await login(loginForm)
+    localStorage.setItem('oa_token', JSON.stringify({ token, user }))
+    ElMessage.success(`登录成功，欢迎回来，${user.name}！`)
+    router.push(route.query.redirect || '/workbench')
+  } catch {
+    // 错误提示由响应拦截器统一弹出（如「账号或密码错误」），此处只需复位状态
+  } finally {
+    loading.value = false
+  }
+}
 </script>
 
 <template>

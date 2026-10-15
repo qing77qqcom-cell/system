@@ -18,12 +18,13 @@ export default defineConfig({
       resolvers: [ElementPlusResolver()],
     }),
   ],
-  proxy: {
-    '/api': {
-      target: 'http://localhost:3000',
-      changeOrigin: true,
-      secure: false,
-      rewrite: (path) => path.replace(/^\/api/, ''),//代理路径
+  server: {
+    proxy: {
+      // /api 前缀转发到后端，后端路由本身带 /api，不做 rewrite
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
     },
   },
   resolve: {

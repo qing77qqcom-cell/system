@@ -1,25 +1,11 @@
 import service from '@/utils/request'
-import { ElMessage } from 'element-plus'
 
-import { ref } from 'vue'
-
-const loading = ref(false)
-
-
-
+// 登录：成功返回 { token, user }（信封已由响应拦截器拆解）
 export function login(data) {
-
-  return service.post('login', data).then((res)=>{
-
-      localStorage.setItem('oa_token', JSON.stringify({ token: res.data.token.token, user: res.data.token.user }))
-         ElMessage.success('登录成功，欢迎回来！')
-
-      }
-).catch((err)=>{
-
-      ElMessage.error(err.message)
-}).finally(()=>{
-      loading.value = false
-})
+  return service.post('/login', data)
 }
 
+// 获取当前登录用户信息（用于刷新用户状态，如被禁用/信息变更）
+export function getMe() {
+  return service.get('/users/me')
+}
