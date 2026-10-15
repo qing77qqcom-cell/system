@@ -141,6 +141,25 @@ export const openapiSpec = {
         },
       },
     },
+    // ===== 元数据（下拉选项枚举） =====
+    '/api/meta': {
+      get: {
+        tags: ['元数据'], security: [], summary: '获取前端下拉选项枚举（部门/类型/优先级/状态/权限类型/设备类型）',
+        responses: {
+          ...okResp({
+            type: 'object',
+            properties: {
+              depts: { type: 'array', items: { type: 'string' } },
+              types: { type: 'array', items: { type: 'string' } },
+              priorities: { type: 'array', items: { type: 'string' } },
+              statuses: { type: 'array', items: { type: 'string' } },
+              permTypes: { type: 'array', items: { type: 'string' } },
+              deviceTypes: { type: 'array', items: { type: 'string' } },
+            },
+          }),
+        },
+      },
+    },
     // ===== 认证 =====
     '/api/login': {
       post: {
@@ -177,6 +196,8 @@ export const openapiSpec = {
           { name: 'priority', in: 'query', schema: { type: 'string' }, description: '优先级精确匹配' },
           { name: 'dateFrom', in: 'query', schema: { type: 'string', format: 'date' }, description: '创建日期起（含）' },
           { name: 'dateTo', in: 'query', schema: { type: 'string', format: 'date' }, description: '创建日期止（含）' },
+          { name: 'submitterId', in: 'query', schema: { type: 'integer' }, description: '提交人 id（用于用户详情页筛选）' },
+          { name: 'handlerId', in: 'query', schema: { type: 'integer' }, description: '处理人 id（用于处理人工作量筛选）' },
         ],
         responses: { ...okResp({ type: 'array', items: { $ref: '#/components/schemas/Order' } }), 400: { description: '参数不合法' } },
       },
@@ -298,6 +319,11 @@ export const openapiSpec = {
       },
     },
     '/api/users/{id}': {
+      get: {
+        tags: ['用户管理'], summary: '用户详情（超管任意 / 部长本部门 / 员工仅自己；无权一律 404）',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+        responses: { ...okResp({ $ref: '#/components/schemas/User' }), 404: { description: '用户不存在或无权查看（不区分，防探测）' } },
+      },
       put: {
         tags: ['用户管理'], summary: '编辑用户（仅超管；username 不可改）',
         parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],

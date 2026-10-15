@@ -23,6 +23,19 @@ const scopeCond = (user, params) => {
 router.get('/overview', async (req, res) => {
   const params = []
   const scope = scopeCond(req.user, params)
+  const { submitterId, handlerId } = req.query
+  const extraConds = []
+  if (submitterId) {
+    assert(Number.isInteger(Number(submitterId)), 'submitterId 不合法')
+    params.push(Number(submitterId))
+    extraConds.push(`o.submitter_id = $${params.length}`)
+  }
+  if (handlerId) {
+    assert(Number.isInteger(Number(handlerId)), 'handlerId 不合法')
+    params.push(Number(handlerId))
+    extraConds.push(`o.handler_id = $${params.length}`)
+  }
+  const where = extraConds.length ? `${scope} AND ${extraConds.join(' AND ')}` : scope
   const { rows } = await query(
     `SELECT
        COUNT(*)::int AS total,
@@ -38,7 +51,7 @@ router.get('/overview', async (req, res) => {
                           AND o.completed_at >= date_trunc('month', now()))::int AS "monthDone",
        COALESCE(ROUND(AVG(EXTRACT(EPOCH FROM (o.completed_at - o.created_at))) / 3600.0, 1), 0)::float AS "avgProcessHours"
      FROM orders o
-     WHERE o.deleted_at IS NULL AND ${scope}`,
+     WHERE o.deleted_at IS NULL AND ${where}`,
     params,
   )
   ok(res, rows[0])

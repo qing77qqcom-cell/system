@@ -13,6 +13,7 @@ import orderRoutes from './routes/orders.js'
 import uploadRoutes from './routes/upload.js'
 import statsRoutes from './routes/stats.js'
 import userRoutes from './routes/users.js'
+import metaRoutes from './routes/meta.js'
 
 export const createApp = () => {
   const app = express()
@@ -45,6 +46,7 @@ export const createApp = () => {
     swaggerUi.setup(openapiSpec, { swaggerOptions: { persistAuthorization: true } }),
   )
 
+  app.use('/api/meta', metaRoutes)
   app.use('/api', authRoutes)
   app.use('/api/upload', uploadRoutes)
   app.use('/api/orders', orderRoutes)

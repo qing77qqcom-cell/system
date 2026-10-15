@@ -1,14 +1,17 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Delete, Edit, Key, Plus, Refresh, Search, SwitchButton, View } from '@element-plus/icons-vue'
-import { useUserStore } from '@/stores/user'
 import { DEPT_OPTIONS } from '@/mock/data'
 import { ROLE_OPTIONS, ROLE_TAG_TYPE, USER_STATUS_TAG_TYPE } from '@/mock/users'
+import { listUsers, createUser, updateUser, toggleUserStatus, resetUserPassword, deleteUser } from '@/api/user'
 
 const route = useRoute()
 const router = useRouter()
-const store = useUserStore()
+
+// ============ 列表数据 ============
+const users = ref([])
+const loading = ref(false)
 
 // ============ 查询条件 ============
 const queryForm = reactive({
@@ -25,21 +28,24 @@ const applied = reactive({
   pageSize: 10,
 })
 
-const filteredUsers = computed(() => {
-  return store.users.filter((u) => {
-    if (applied.keyword) {
-      const kw = applied.keyword.toLowerCase()
-      if (!u.username.toLowerCase().includes(kw) && !u.name.toLowerCase().includes(kw)) return false
-    }
-    if (applied.role && u.role !== applied.role) return false
-    if (applied.status && u.status !== applied.status) return false
-    return true
-  })
-})
+// 当前页数据（筛选在后端做，分页在前端）
+const pagedUsers = ref([])
 
-const pagedUsers = computed(() =>
-  filteredUsers.value.slice((applied.page - 1) * applied.pageSize, applied.page * applied.pageSize),
-)
+async function loadList() {
+  loading.value = true
+  try {
+    const params = {}
+    if (applied.keyword) params.keyword = applied.keyword
+    if (applied.role) params.role = applied.role
+    if (applied.status) params.status = applied.status
+    users.value = await listUsers(params)
+    // 分页在前端（规格 §8 约定：分页排序由前端做）
+    const start = (applied.page - 1) * applied.pageSize
+    pagedUsers.value = users.value.slice(start, start + applied.pageSize)
+  } finally {
+    loading.value = false
+  }
+}
 
 const handleSearch = () => {
   Object.assign(applied, {
@@ -48,19 +54,24 @@ const handleSearch = () => {
     status: queryForm.status,
     page: 1,
   })
+  loadList()
 }
 
 const handleReset = () => {
   Object.assign(queryForm, { keyword: '', role: '', status: '' })
   Object.assign(applied, { keyword: '', role: '', status: '', page: 1, pageSize: 10 })
+  loadList()
 }
 
 const handlePageChange = (page) => {
   applied.page = page
+  const start = (page - 1) * applied.pageSize
+  pagedUsers.value = users.value.slice(start, start + applied.pageSize)
 }
 const handleSizeChange = (size) => {
   applied.pageSize = size
   applied.page = 1
+  pagedUsers.value = users.value.slice(0, size)
 }
 
 // ============ 新增 / 编辑弹窗 ============
@@ -116,19 +127,30 @@ const handleSubmit = async () => {
     ElMessage.error('请完善必填信息')
     return
   }
-  const dup = store.users.find((u) => u.username === form.username && u.id !== form.id)
-  if (dup) {
-    ElMessage.error('该账号已存在，请更换')
-    return
+  try {
+    if (dialogMode.value === 'add') {
+      await createUser({
+        username: form.username.trim().toLowerCase(),
+        name: form.name.trim(),
+        role: form.role,
+        dept: form.dept,
+        email: form.email?.trim() || null,
+      })
+      ElMessage.success('用户创建成功')
+    } else {
+      await updateUser(form.id, {
+        name: form.name.trim(),
+        role: form.role,
+        dept: form.dept,
+        email: form.email?.trim() || null,
+      })
+      ElMessage.success('用户修改成功')
+    }
+    dialogVisible.value = false
+    loadList()
+  } catch {
+    // 错误提示由响应拦截器统一弹出（如「用户名已存在」「邮箱格式不正确」）
   }
-  if (dialogMode.value === 'add') {
-    store.addUser({ ...form })
-    ElMessage.success('用户创建成功')
-  } else {
-    store.updateUser(form.id, { ...form })
-    ElMessage.success('用户修改成功')
-  }
-  dialogVisible.value = false
 }
 
 // ============ 启用 / 禁用 ============
@@ -139,9 +161,10 @@ const handleToggle = (row) => {
     `${action}用户`,
     { confirmButtonText: `确定${action}`, cancelButtonText: '取消', type: 'warning' },
   )
-    .then(() => {
-      store.toggleStatus(row.id)
+    .then(async () => {
+      await toggleUserStatus(row.id, action)
       ElMessage.success(`已${action}用户 ${row.name}`)
+      loadList()
     })
     .catch(() => { })
 }
@@ -153,8 +176,8 @@ const handleResetPwd = (row) => {
     cancelButtonText: '取消',
     type: 'warning',
   })
-    .then(() => {
-      store.resetPassword(row.id)
+    .then(async () => {
+      await resetUserPassword(row.id)
       ElMessage.success(`用户 ${row.name} 的密码已重置为 123456`)
     })
     .catch(() => { })
@@ -167,9 +190,12 @@ const handleDelete = (row) => {
     cancelButtonText: '取消',
     confirmButtonType: 'danger',
   })
-    .then(() => {
-      store.removeUsers([row.id])
+    .then(async () => {
+      await deleteUser(row.id)
       ElMessage.success(`用户 ${row.name} 已删除`)
+      // 删除后重新加载，当前页如果删光了回退一页
+      if (pagedUsers.value.length === 1 && applied.page > 1) applied.page -= 1
+      loadList()
     })
     .catch(() => { })
 }
@@ -185,14 +211,13 @@ watch(
       queryForm.keyword = name
       applied.keyword = name
       applied.page = 1
+      loadList()
     }
   },
   { immediate: true },
 )
 
-onMounted(() => {
-  store.fetchList()
-})
+onMounted(loadList)
 </script>
 
 <template>
@@ -225,14 +250,14 @@ onMounted(() => {
     <!-- 表格区域 -->
     <el-card shadow="never" class="table-card">
       <div class="table-toolbar">
-        <span class="table-title">用户列表（{{ filteredUsers.length }}）</span>
+        <span class="table-title">用户列表（{{ users.length }}）</span>
         <div>
-          <el-button text size="small" :icon="Refresh" @click="store.fetchList()">刷新</el-button>
+          <el-button text size="small" :icon="Refresh" @click="loadList">刷新</el-button>
           <el-button type="primary" :icon="Plus" @click="openAdd">新增用户</el-button>
         </div>
       </div>
 
-      <el-table :data="pagedUsers" v-loading="store.loading" border stripe style="width: 100%">
+      <el-table :data="pagedUsers" v-loading="loading" border stripe style="width: 100%">
         <el-table-column prop="username" label="账号" width="130" />
         <el-table-column prop="name" label="姓名" width="90" />
         <el-table-column label="角色" width="110" align="center">
@@ -268,7 +293,7 @@ onMounted(() => {
       </el-table>
 
       <div class="pagination">
-        <el-pagination background layout="total, sizes, prev, pager, next, jumper" :total="filteredUsers.length"
+        <el-pagination background layout="total, sizes, prev, pager, next, jumper" :total="users.length"
           :current-page="applied.page" :page-size="applied.pageSize" :page-sizes="[5, 10, 20]"
           @current-change="handlePageChange" @size-change="handleSizeChange" />
       </div>

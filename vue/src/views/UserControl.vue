@@ -1,41 +1,69 @@
 <script setup>
-import { computed } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Back } from '@element-plus/icons-vue'
-import { useUserStore } from '@/stores/user'
-import { useWorkOrderStore } from '@/stores/workOrder'
+import { getUser } from '@/api/user'
+import { listOrders } from '@/api/order'
+import { getStatsOverview } from '@/api/stats'
 import { PRIORITY_TAG_TYPE, STATUS_TAG_TYPE } from '@/mock/data'
 import { ROLE_TAG_TYPE, USER_STATUS_TAG_TYPE } from '@/mock/users'
-import { isOverdue } from '@/utils/helpers'
 
 const route = useRoute()
 const router = useRouter()
-const userStore = useUserStore()
-const orderStore = useWorkOrderStore()
 
-const user = computed(() => userStore.getById(Number(route.params.id)))
-
-// 该用户提交的所有工单（按提交人姓名匹配）
-const myOrders = computed(() => {
-  if (!user.value) return []
-  return orderStore.orders.filter((o) => o.submitter === user.value.name)
+// reactive 对象：接口返回后一次性 Object.assign 灌进来
+const user = reactive({
+  id: 0,
+  name: '',
+  role: '',
+  dept: '',
+  email: '',
+  username: '',
+  status: '',
+  createdAt: '',
 })
 
-// 工单统计
-const stats = computed(() => {
-  const list = myOrders.value
-  return [
-    { label: '提交工单', value: list.length },
-    { label: '待处理', value: list.filter((o) => o.status === '待处理').length },
-    { label: '处理中', value: list.filter((o) => o.status === '处理中').length },
-    { label: '已完成', value: list.filter((o) => o.status === '已完成').length },
-    { label: '逾期', value: list.filter((o) => isOverdue(o)).length },
-  ]
+// 用户提交的工单（后端接口数据）
+const myOrders = ref([])
+
+// 工单统计（后端聚合接口直接返回，省得前端遍历工单列表再算）
+const stats = ref([
+  { label: '提交工单', value: 0 },
+  { label: '待处理', value: 0 },
+  { label: '处理中', value: 0 },
+  { label: '已完成', value: 0 },
+  { label: '逾期', value: 0 },
+])
+
+// 按路由 id 调后端接口拿详情、统计与工单列表
+onMounted(async () => {
+  try {
+    const data = await getUser(route.params.id)
+    Object.assign(user, data)
+  } catch {
+    return // 用户不存在或无权查看，user.id 保持 0，模板走空状态
+  }
+  // 并行拉统计和工单列表（两个独立请求）
+  await Promise.allSettled([
+    (async () => {
+      const s = await getStatsOverview({ submitterId: user.id })
+      stats.value = [
+        { label: '提交工单', value: s.total },
+        { label: '待处理', value: s.pending },
+        { label: '处理中', value: s.processing },
+        { label: '已完成', value: s.completed },
+        { label: '逾期', value: s.overdue },
+      ]
+    })(),
+    (async () => {
+      myOrders.value = await listOrders({ submitterId: user.id })
+    })(),
+  ])
 })
 </script>
 
 <template>
-  <div v-if="user" class="user-detail">
+  <div v-if="user.id" class="user-detail">
     <!-- 顶部返回 -->
     <div class="top-bar">
       <el-button text :icon="Back" @click="router.back()">返回</el-button>

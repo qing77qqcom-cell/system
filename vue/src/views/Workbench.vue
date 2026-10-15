@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Sunny,
@@ -10,6 +10,7 @@ import {
   Grid,
 } from '@element-plus/icons-vue'
 import { useWorkOrderStore } from '@/stores/workOrder'
+import { getStatsOverview } from '@/api/stats'
 import { ANNOUNCEMENTS, PRIORITY_TAG_TYPE, STATUS_TAG_TYPE } from '@/mock/data'
 import { currentUser, greeting, isOverdue } from '@/utils/helpers'
 import BaseChart from '@/components/BaseChart.vue'
@@ -17,7 +18,15 @@ import BaseChart from '@/components/BaseChart.vue'
 const router = useRouter()
 const store = useWorkOrderStore()
 
-// 工单状态分布（环形饼图），数据实时来自 store.stats
+// 工单状态统计（来自后端 /api/stats/overview，按角色范围统计全部工单）
+const stats = ref({ pending: 0, processing: 0, completed: 0, closed: 0, returned: 0 })
+
+onMounted(async () => {
+  stats.value = await getStatsOverview()
+})
+
+// 工单状态分布（环形饼图）：5 个状态互斥，合计 = 范围内全部工单
+// 颜色与列表页 el-tag 的状态配色保持一致
 const pieOption = computed(() => ({
   tooltip: { trigger: 'item', formatter: '{b}：{c} 条（{d}%）' },
   legend: { bottom: 0, icon: 'circle', itemWidth: 8, itemHeight: 8 },
@@ -30,10 +39,11 @@ const pieOption = computed(() => ({
       itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
       label: { show: true, formatter: '{b}\n{c} 条' },
       data: [
-        { name: '待处理', value: store.stats.pending, itemStyle: { color: '#1e88e5' } },
-        { name: '处理中', value: store.stats.processing, itemStyle: { color: '#e6a23c' } },
-        { name: '已逾期', value: store.stats.overdue, itemStyle: { color: '#f56c6c' } },
-        { name: '本月已完成', value: store.stats.monthDone, itemStyle: { color: '#67c23a' } },
+        { name: '待处理', value: stats.value.pending, itemStyle: { color: '#e6a23c' } },
+        { name: '处理中', value: stats.value.processing, itemStyle: { color: '#1e88e5' } },
+        { name: '已完成', value: stats.value.completed, itemStyle: { color: '#67c23a' } },
+        { name: '已关闭', value: stats.value.closed, itemStyle: { color: '#909399' } },
+        { name: '已退回', value: stats.value.returned, itemStyle: { color: '#f56c6c' } },
       ],
     },
   ],

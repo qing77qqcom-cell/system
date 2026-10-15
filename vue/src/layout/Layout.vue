@@ -19,10 +19,12 @@ const route = useRoute()
 const router = useRouter()
 const collapsed = ref(false)
 
-// 工单相关页面统一高亮“工单列表”菜单
-const activeMenu = computed(() =>
-  route.path.startsWith('/work-orders') ? '/work-orders' : route.path,
-)
+// 详情页归并到所属列表菜单高亮（/work-orders/* → 工单列表，/usercontrol/* → 用户管理）
+const activeMenu = computed(() => {
+  if (route.path.startsWith('/work-orders')) return '/work-orders'
+  if (route.path.startsWith('/usercontrol')) return '/usercontrol'
+  return route.path
+})
 
 const handleLogout = () => {
   ElMessageBox.confirm('确定要退出登录吗？', '退出确认', {

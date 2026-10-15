@@ -30,15 +30,57 @@ const USER_COLS = 'id, username, name, role, dept, email, status, created_at'
 // ============ GET /api/users — 用户列表（超管全部 / 部长本部门只读，§0.1 决策 3） ============
 router.get('/', requireRole('超级管理员', '部长'), async (req, res) => {
   const params = []
+  const { keyword, role, status } = req.query
   let sql = `SELECT ${USER_COLS} FROM users`
+  const conds = []
   if (req.user.role === '部长') {
+    conds.push(`dept = $${params.length + 1}`)
     params.push(req.user.dept)
-    sql += ` WHERE dept = $1`
   }
+  if (keyword) {
+    const kw = String(keyword).trim().toLowerCase()
+    assert(kw, 'keyword 不合法')
+    params.push(`%${kw}%`)
+    conds.push(`(lower(username) LIKE $${params.length} OR lower(name) LIKE $${params.length})`)
+  }
+  if (role) {
+    assert(ROLES.includes(role), 'role 不合法')
+    params.push(role)
+    conds.push(`role = $${params.length}`)
+  }
+  if (status) {
+    assert(['启用', '禁用'].includes(status), 'status 仅支持 启用/禁用')
+    params.push(status)
+    conds.push(`status = $${params.length}`)
+  }
+  if (conds.length) sql += ` WHERE ${conds.join(' AND ')}`
   sql += ` ORDER BY created_at ASC, id ASC`
   const { rows } = await query(sql, params)
   ok(res, rows.map(toUserDTO))
 })
+
+// ============ GET /api/users/:id — 用户详情（超管任意 / 部长本部门 / 员工仅自己） ============
+router.get('/:id', async (req, res) => {
+  const id = Number(req.params.id)
+  assert(Number.isInteger(id) && id > 0, '用户 ID 不合法')
+
+  // 数据范围：与工单一致的可见性语义，无权一律 404（不暴露存在性）
+  const canView =
+    req.user.role === '超级管理员' ||
+    req.user.id === id ||
+    (req.user.role === '部长' && (await isSameDept(req.user.dept, id)))
+  assert(canView, '用户不存在', 404)
+
+  const { rows } = await query(`SELECT ${USER_COLS} FROM users WHERE id = $1`, [id])
+  assert(rows[0], '用户不存在', 404)
+  ok(res, toUserDTO(rows[0]))
+})
+
+// 部长校验目标用户是否同属本部门
+async function isSameDept(dept, targetId) {
+  const { rows } = await query('SELECT 1 FROM users WHERE id = $1 AND dept = $2', [targetId, dept])
+  return rows.length > 0
+}
 
 // ============ POST /api/users — 创建用户（仅超管，默认密码 123456） ============
 router.post('/', requireRole('超级管理员'), async (req, res) => {

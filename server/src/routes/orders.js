@@ -102,7 +102,7 @@ router.get('/', async (req, res) => {
   const params = []
   const conds = ['o.deleted_at IS NULL', visibleCond(req.user, params)]
 
-  const { keyword, dept, type, status, priority, dateFrom, dateTo } = req.query
+  const { keyword, dept, type, status, priority, dateFrom, dateTo, submitterId, handlerId } = req.query
   if (keyword) {
     const kw = `%${String(keyword).trim()}%`
     params.push(kw, kw)
@@ -133,6 +133,16 @@ router.get('/', async (req, res) => {
     assert(isDateString(String(dateTo)), 'dateTo 格式应为 YYYY-MM-DD')
     params.push(String(dateTo))
     conds.push(`o.created_at < ($${params.length}::date + INTERVAL '1 day')`)
+  }
+  if (submitterId) {
+    assert(Number.isInteger(Number(submitterId)), 'submitterId 不合法')
+    params.push(Number(submitterId))
+    conds.push(`o.submitter_id = $${params.length}`)
+  }
+  if (handlerId) {
+    assert(Number.isInteger(Number(handlerId)), 'handlerId 不合法')
+    params.push(Number(handlerId))
+    conds.push(`o.handler_id = $${params.length}`)
   }
 
   const { rows } = await query(

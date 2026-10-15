@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Back,
@@ -10,17 +10,33 @@ import {
   CircleClose,
   Paperclip,
 } from '@element-plus/icons-vue'
-import { useWorkOrderStore } from '@/stores/workOrder'
+import { getOrder, updateOrderStatus, urgeOrder, assignOrder } from '@/api/order'
+import { listUsers } from '@/api/user'
 import { PRIORITY_TAG_TYPE, STATUS_TAG_TYPE } from '@/mock/data'
-import { isOverdue } from '@/utils/helpers'
+import { isOverdue, currentUserInfo } from '@/utils/helpers'
 
 const route = useRoute()
 const router = useRouter()
-const store = useWorkOrderStore()
 
 const acting = ref(false)
+const loading = ref(false)
+const notFound = ref(false)
 
-const order = computed(() => store.getById(route.params.id))
+// 工单详情（含处理日志 logs），不存在/无权查看 → notFound
+const order = ref(null)
+
+async function loadOrder() {
+  loading.value = true
+  notFound.value = false
+  try {
+    order.value = await getOrder(route.params.id)
+  } catch {
+    order.value = null
+    notFound.value = true
+  } finally {
+    loading.value = false
+  }
+}
 
 // 动态字段中文映射
 const EXTRA_LABELS = {
@@ -49,12 +65,63 @@ const stepStatus = computed(() => {
 
 const active = computed(() => ['待处理', '处理中'].includes(order.value?.status))
 
-const handleUrge = () => {
+// ============ 分配处理人（部长/超管可见，后端仍做权限与状态兜底） ============
+const canAssign = computed(() => {
+  const role = currentUserInfo()?.role
+  return (
+    ['部长', '超级管理员'].includes(role) &&
+    ['待处理', '已退回'].includes(order.value?.status)
+  )
+})
+
+const assignDialogVisible = ref(false)
+const assignLoading = ref(false)
+const assigning = ref(false)
+const handlerOptions = ref([])
+const selectedHandlerId = ref(null)
+
+const openAssignDialog = async () => {
+  assignDialogVisible.value = true
+  selectedHandlerId.value = order.value?.handlerId || null
+  assignLoading.value = true
+  try {
+    // 只能分配给启用中的用户
+    handlerOptions.value = await listUsers({ status: '启用' })
+  } finally {
+    assignLoading.value = false
+  }
+}
+
+const handleAssignSubmit = async () => {
+  if (!selectedHandlerId.value) {
+    ElMessage.warning('请选择处理人')
+    return
+  }
+  assigning.value = true
+  try {
+    await assignOrder(order.value.id, selectedHandlerId.value)
+    ElMessage.success('分配成功')
+    assignDialogVisible.value = false
+    loadOrder()
+  } catch {
+    // 错误提示由响应拦截器统一弹出
+  } finally {
+    assigning.value = false
+  }
+}
+
+const handleUrge = async () => {
   if (acting.value) return
   acting.value = true
-  store.urge(order.value.id)
-  ElMessage.success('已催办，处理人将收到提醒')
-  setTimeout(() => (acting.value = false), 300)
+  try {
+    await urgeOrder(order.value.id)
+    ElMessage.success('已催办，处理人将收到提醒')
+    loadOrder()
+  } catch {
+    // 错误提示由响应拦截器统一弹出
+  } finally {
+    acting.value = false
+  }
 }
 
 const handleReject = () => {
@@ -65,9 +132,10 @@ const handleReject = () => {
     inputPlaceholder: '例如：信息不全，请补充后重新提交',
     inputValidator: (v) => (v && v.trim() ? true : '退回原因不能为空'),
   })
-    .then(({ value }) => {
-      store.rejectOrder(order.value.id, value.trim())
+    .then(async ({ value }) => {
+      await updateOrderStatus(order.value.id, 'reject', value.trim())
       ElMessage.success('工单已退回')
+      loadOrder()
     })
     .catch(() => {})
 }
@@ -78,9 +146,10 @@ const handleComplete = () => {
     cancelButtonText: '取消',
     type: 'success',
   })
-    .then(() => {
-      store.completeOrder(order.value.id)
+    .then(async () => {
+      await updateOrderStatus(order.value.id, 'complete')
       ElMessage.success('工单已完成')
+      loadOrder()
     })
     .catch(() => {})
 }
@@ -91,18 +160,32 @@ const handleClose = () => {
     cancelButtonText: '取消',
     type: 'warning',
   })
-    .then(() => {
-      store.closeOrder(order.value.id)
+    .then(async () => {
+      await updateOrderStatus(order.value.id, 'close')
       ElMessage.success('工单已关闭')
+      loadOrder()
     })
     .catch(() => {})
 }
 
-const openAttachment = (name) => ElMessage.info(`演示环境：暂不支持下载附件「${name}」`)
+// 附件点击：新窗口打开真实文件（url 由后端 /api/upload 返回）
+const openAttachment = (file) => {
+  if (file.url) {
+    window.open(`http://localhost:3000${file.url}`, '_blank')
+  } else {
+    ElMessage.info(`附件「${file.name}」无下载地址`)
+  }
+}
+
+onMounted(loadOrder)
+// 同一组件内切换工单 id（如从详情跳详情）时重新加载
+watch(() => route.params.id, (id, old) => {
+  if (id && id !== old) loadOrder()
+})
 </script>
 
 <template>
-  <div v-if="order" class="detail">
+  <div v-if="order" v-loading="loading" class="detail">
     <!-- 顶部信息条 -->
     <div class="top-bar">
       <div class="top-left">
@@ -150,7 +233,14 @@ const openAttachment = (name) => ElMessage.info(`演示环境：暂不支持下�
         <el-descriptions-item label="提交人">{{ order.submitter }}</el-descriptions-item>
         <el-descriptions-item label="所属部门">{{ order.dept }}</el-descriptions-item>
         <el-descriptions-item label="创建时间">{{ order.createdAt }}</el-descriptions-item>
-        <el-descriptions-item label="处理人">{{ order.handler || '待分配' }}</el-descriptions-item>
+        <el-descriptions-item label="处理人">
+          <div class="handler-row">
+            <span>{{ order.handler || '待分配' }}</span>
+            <el-button v-if="canAssign" text type="primary" size="small" @click="openAssignDialog">
+              分配处理人
+            </el-button>
+          </div>
+        </el-descriptions-item>
         <el-descriptions-item label="优先级">
           <el-tag :type="PRIORITY_TAG_TYPE[order.priority]" size="small">{{ order.priority }}</el-tag>
         </el-descriptions-item>
@@ -206,17 +296,42 @@ const openAttachment = (name) => ElMessage.info(`演示环境：暂不支持下�
     <el-card shadow="never" class="block">
       <template #header><span class="block-title">附件</span></template>
       <div v-if="order.attachments.length" class="attachment-list">
-        <div v-for="file in order.attachments" :key="file.name" class="attachment-item" @click="openAttachment(file.name)">
+        <div v-for="file in order.attachments" :key="file.name" class="attachment-item" @click="openAttachment(file)">
           <el-icon color="#1e88e5"><Paperclip /></el-icon>
           <span>{{ file.name }}</span>
         </div>
       </div>
       <el-empty v-else description="暂无附件" :image-size="70" />
     </el-card>
+
+    <!-- 分配处理人弹窗 -->
+    <el-dialog v-model="assignDialogVisible" title="分配处理人" width="420px">
+      <el-select
+        v-model="selectedHandlerId"
+        v-loading="assignLoading"
+        placeholder="请选择处理人"
+        filterable
+        style="width: 100%"
+      >
+        <el-option
+          v-for="u in handlerOptions"
+          :key="u.id"
+          :label="`${u.name}（${u.dept} · ${u.role}）`"
+          :value="u.id"
+        />
+      </el-select>
+      <template #footer>
+        <el-button @click="assignDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="assigning" @click="handleAssignSubmit">确定分配</el-button>
+      </template>
+    </el-dialog>
   </div>
 
+  <!-- 加载中（order 为 null 且未确定不存在时，占位防闪"不存在"页） -->
+  <div v-else-if="loading" v-loading="true" style="height: 300px" />
+
   <!-- 工单不存在 -->
-  <el-result v-else icon="warning" title="工单不存在或已被删除" sub-title="请返回列表重新选择">
+  <el-result v-else-if="notFound" icon="warning" title="工单不存在或已被删除" sub-title="请返回列表重新选择">
     <template #extra>
       <el-button type="primary" @click="router.push('/work-orders')">返回工单列表</el-button>
     </template>
@@ -281,6 +396,11 @@ const openAttachment = (name) => ElMessage.info(`演示环境：暂不支持下�
 .overdue {
   color: #f56c6c;
   font-weight: 600;
+}
+.handler-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .log-action {

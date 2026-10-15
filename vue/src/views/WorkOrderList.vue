@@ -1,23 +1,33 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Plus, Refresh, Search, Warning } from '@element-plus/icons-vue'
-import { useWorkOrderStore } from '@/stores/workOrder'
-import { useUserStore } from '@/stores/user'
-import {
-  DEPT_OPTIONS,
-  PRIORITY_OPTIONS,
-  PRIORITY_TAG_TYPE,
-  STATUS_OPTIONS,
-  STATUS_TAG_TYPE,
-  TYPE_OPTIONS,
-} from '@/mock/data'
+import { Plus, Refresh, Search } from '@element-plus/icons-vue'
+import { listOrders, batchCloseOrders, deleteOrder } from '@/api/order'
+import { getMeta } from '@/api/meta'
+import { PRIORITY_TAG_TYPE, STATUS_TAG_TYPE } from '@/mock/data'
 import { isOverdue } from '@/utils/helpers'
+
+// 下拉选项（来自后端 /api/meta，避免前后端枚举不一致）
+const deptOptions = ref([])
+const typeOptions = ref([])
+const statusOptions = ref([])
+const priorityOptions = ref([])
+
+async function loadMeta() {
+  const meta = await getMeta()
+  deptOptions.value = meta.depts
+  typeOptions.value = meta.types
+  statusOptions.value = meta.statuses
+  priorityOptions.value = meta.priorities
+}
 
 const route = useRoute()
 const router = useRouter()
-const store = useWorkOrderStore()
-const userStore = useUserStore()
+
+// 工单列表数据（后端已按角色范围 + 筛选条件返回）
+const orders = ref([])
+const loading = ref(false)
+const error = ref(false)
 
 // 输入中的查询条件（点“查询”后才生效）
 const queryForm = reactive({
@@ -38,7 +48,7 @@ const applied = reactive({
   priority: '',
   dates: [],
   page: 1,
-  pageSize: 10,
+  pageSize: 5, // 默认 5 条/页，演示数据能看到分页效果
   sortProp: '',
   sortOrder: '',
 })
@@ -53,14 +63,16 @@ function hydrateFromQuery(q = route.query) {
   queryForm.status = q.status || ''
   queryForm.priority = q.priority || ''
   queryForm.dates = q.dates ? q.dates.split(',') : []
-  applied.keyword = queryForm.keyword
-  applied.dept = queryForm.dept
-  applied.type = queryForm.type
-  applied.status = queryForm.status
-  applied.priority = queryForm.priority
-  applied.dates = [...queryForm.dates]
-  applied.page = Number(q.page) || 1
-  applied.pageSize = Number(q.pageSize) || 10
+  Object.assign(applied, {
+    keyword: queryForm.keyword,
+    dept: queryForm.dept,
+    type: queryForm.type,
+    status: queryForm.status,
+    priority: queryForm.priority,
+    dates: [...queryForm.dates],
+    page: Number(q.page) || 1,
+    pageSize: Number(q.pageSize) || 5,
+  })
 }
 
 // 把当前状态写回 URL
@@ -73,37 +85,46 @@ function syncQuery() {
   if (applied.priority) q.priority = applied.priority
   if (applied.dates.length === 2) q.dates = applied.dates.join(',')
   if (applied.page > 1) q.page = applied.page
-  if (applied.pageSize !== 10) q.pageSize = applied.pageSize
+  if (applied.pageSize !== 5) q.pageSize = applied.pageSize
   router.replace({ path: '/work-orders', query: q })
 }
 
-// 筛选 + 排序后的完整数据
-const filteredOrders = computed(() => {
-  let list = store.orders.filter((o) => {
-    if (applied.keyword) {
-      const kw = applied.keyword.toLowerCase()
-      if (!o.title.toLowerCase().includes(kw) && !o.id.toLowerCase().includes(kw)) return false
-    }
-    if (applied.dept && o.dept !== applied.dept) return false
-    if (applied.type && o.type !== applied.type) return false
-    if (applied.status && o.status !== applied.status) return false
-    if (applied.priority && o.priority !== applied.priority) return false
+// 拉列表（筛选参数透传到后端；排序仍在前端做）
+async function loadList() {
+  loading.value = true
+  error.value = false
+  try {
+    const params = {}
+    if (applied.keyword) params.keyword = applied.keyword
+    if (applied.dept) params.dept = applied.dept
+    if (applied.type) params.type = applied.type
+    if (applied.status) params.status = applied.status
+    if (applied.priority) params.priority = applied.priority
     if (applied.dates.length === 2) {
-      const day = o.createdAt.slice(0, 10)
-      if (day < applied.dates[0] || day > applied.dates[1]) return false
+      params.dateFrom = applied.dates[0]
+      params.dateTo = applied.dates[1]
     }
-    return true
-  })
-  if (applied.sortProp && applied.sortOrder) {
-    const dir = applied.sortOrder === 'ascending' ? 1 : -1
-    list = [...list].sort((a, b) => (a[applied.sortProp] > b[applied.sortProp] ? dir : -dir))
+    orders.value = await listOrders(params)
+  } catch {
+    error.value = true
+    orders.value = []
+  } finally {
+    loading.value = false
   }
-  return list
+}
+
+// 排序后的完整数据（筛选已在后端完成，这里只管排序 + 分页）
+const sortedOrders = computed(() => {
+  if (!applied.sortProp || !applied.sortOrder) return orders.value
+  const dir = applied.sortOrder === 'ascending' ? 1 : -1
+  return [...orders.value].sort((a, b) =>
+    a[applied.sortProp] > b[applied.sortProp] ? dir : -dir,
+  )
 })
 
 // 当前页数据
 const pagedOrders = computed(() =>
-  filteredOrders.value.slice((applied.page - 1) * applied.pageSize, applied.page * applied.pageSize),
+  sortedOrders.value.slice((applied.page - 1) * applied.pageSize, applied.page * applied.pageSize),
 )
 
 const handleSearch = () => {
@@ -117,6 +138,7 @@ const handleSearch = () => {
     page: 1,
   })
   syncQuery()
+  loadList()
 }
 
 const handleReset = () => {
@@ -129,11 +151,12 @@ const handleReset = () => {
     priority: '',
     dates: [],
     page: 1,
-    pageSize: 10,
+    pageSize: 5,
     sortProp: '',
     sortOrder: '',
   })
   syncQuery()
+  loadList()
 }
 
 const handleSortChange = ({ prop, order }) => {
@@ -143,7 +166,6 @@ const handleSortChange = ({ prop, order }) => {
 
 const handleSelectionChange = (rows) => {
   selectedRows.value = rows
-  console.log(rows)
 }
 
 const handleBatchClose = () => {
@@ -153,17 +175,24 @@ const handleBatchClose = () => {
     cancelButtonText: '取消',
     type: 'warning',
   })
-    .then(() => {
-      const count = store.batchClose(selectedRows.value.map((r) => r.id))
-      ElMessage.success(`已关闭 ${count} 条工单`)
+    .then(async () => {
+      const result = await batchCloseOrders(selectedRows.value.map((r) => r.id))
+      ElMessage.success(`已关闭 ${result.count || n} 条工单`)
       selectedRows.value = []
+      loadList()
     })
     .catch(() => { })
 }
 
 const handleDelete = (row) => {
-  store.removeOrders([row.id])
-  ElMessage.success(`工单 ${row.id} 已删除`)
+  deleteOrder(row.id)
+    .then(() => {
+      ElMessage.success(`工单 ${row.id} 已删除`)
+      // 删除后重新加载，当前页如果删光了回退一页
+      if (pagedOrders.value.length === 1 && applied.page > 1) applied.page -= 1
+      loadList()
+    })
+    .catch(() => { })
 }
 
 const handlePageChange = (page) => {
@@ -176,34 +205,27 @@ const handleSizeChange = (size) => {
   syncQuery()
 }
 
-// 点击提交人：按姓名找到用户则进个人详情页，找不到就跳用户列表按姓名筛选
+// 点击提交人：用 submitterId 直接跳个人详情页（后端已返回该字段）
 const handleClickSubmitter = (row) => {
-  const u = userStore.users.find((x) => x.name === row.submitter)
-  if (u) {
-    router.push(`/usercontrol/${u.id}`)
+  if (row.submitterId) {
+    router.push(`/usercontrol/${row.submitterId}`)
   } else {
     router.push({ path: '/usercontrol', query: { submitter: row.submitter } })
   }
 }
 
-
-
-const loadData = (forceError = false) => {
-  store.fetchList(forceError).catch(() => {
-    if (forceError) ElMessage.warning('已模拟一次接口异常，用于演示 Error 状态')
-  })
-}
-
-const handleSimulateError = () => loadData(true)
-
-// 浏览器前进/后退时，按 URL 重新恢复条件
+// 浏览器前进/后退时，按 URL 重新恢复条件并重新拉数据
 watch(
   () => route.query,
-  (q) => hydrateFromQuery(q),
+  (q) => {
+    hydrateFromQuery(q)
+    loadList()
+  },
 )
 
 hydrateFromQuery()
-loadData()
+loadMeta()
+loadList()
 </script>
 
 <template>
@@ -217,22 +239,22 @@ loadData()
         </el-form-item>
         <el-form-item label="所属部门">
           <el-select v-model="queryForm.dept" placeholder="全部" clearable style="width: 130px">
-            <el-option v-for="d in DEPT_OPTIONS" :key="d" :label="d" :value="d" />
+            <el-option v-for="d in deptOptions" :key="d" :label="d" :value="d" />
           </el-select>
         </el-form-item>
         <el-form-item label="问题类型">
           <el-select v-model="queryForm.type" placeholder="全部" clearable style="width: 130px">
-            <el-option v-for="t in TYPE_OPTIONS" :key="t" :label="t" :value="t" />
+            <el-option v-for="t in typeOptions" :key="t" :label="t" :value="t" />
           </el-select>
         </el-form-item>
         <el-form-item label="状态">
           <el-select v-model="queryForm.status" placeholder="全部" clearable style="width: 120px">
-            <el-option v-for="s in STATUS_OPTIONS" :key="s" :label="s" :value="s" />
+            <el-option v-for="s in statusOptions" :key="s" :label="s" :value="s" />
           </el-select>
         </el-form-item>
         <el-form-item label="优先级">
           <el-select v-model="queryForm.priority" placeholder="全部" clearable style="width: 120px">
-            <el-option v-for="p in PRIORITY_OPTIONS" :key="p" :label="p" :value="p" />
+            <el-option v-for="p in priorityOptions" :key="p" :label="p" :value="p" />
           </el-select>
         </el-form-item>
         <el-form-item label="创建时间">
@@ -259,14 +281,11 @@ loadData()
           </el-button>
         </div>
         <div class="toolbar-right">
-          <el-button text size="small" :icon="Refresh" @click="loadData()">刷新</el-button>
-          <el-button text size="small" type="info" :icon="Warning" @click="handleSimulateError">
-            模拟接口异常
-          </el-button>
+          <el-button text size="small" :icon="Refresh" @click="loadList">刷新</el-button>
         </div>
       </div>
 
-      <el-table v-loading="store.loading" :data="pagedOrders" border stripe style="width: 100%" row-key="id"
+      <el-table v-loading="loading" :data="pagedOrders" border stripe style="width: 100%" row-key="id"
         @selection-change="handleSelectionChange" @sort-change="handleSortChange">
         <el-table-column type="selection" width="46" align="center" />
         <el-table-column prop="id" label="编号" width="150" sortable="custom" />
@@ -325,16 +344,16 @@ loadData()
       </el-table>
 
       <!-- Error 状态覆盖层 -->
-      <div v-if="store.error" class="error-mask">
+      <div v-if="error" class="error-mask">
         <el-result icon="error" title="工单数据加载失败" sub-title="网络异常或服务暂时不可用，请稍后重试">
           <template #extra>
-            <el-button type="primary" @click="loadData()">重新加载</el-button>
+            <el-button type="primary" @click="loadList">重新加载</el-button>
           </template>
         </el-result>
       </div>
 
       <div class="pagination">
-        <el-pagination background layout="total, sizes, prev, pager, next, jumper" :total="filteredOrders.length"
+        <el-pagination background layout="total, sizes, prev, pager, next, jumper" :total="orders.length"
           :current-page="applied.page" :page-size="applied.pageSize" :page-sizes="[5, 10, 20]"
           @current-change="handlePageChange" @size-change="handleSizeChange" />
       </div>

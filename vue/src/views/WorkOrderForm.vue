@@ -2,24 +2,35 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { UploadFilled } from '@element-plus/icons-vue'
-import { useWorkOrderStore } from '@/stores/workOrder'
-import {
-  DEPT_OPTIONS,
-  DEVICE_OPTIONS,
-  PERM_OPTIONS,
-  PRIORITY_OPTIONS,
-  TYPE_OPTIONS,
-} from '@/mock/data'
-import { currentUser, formatDate } from '@/utils/helpers'
+import { createOrder, updateOrder, getOrder, assignOrder } from '@/api/order'
+import { getMeta } from '@/api/meta'
+import { uploadFile } from '@/api/upload'
+import { listUsers } from '@/api/user'
+import { currentUser, currentUserInfo, formatDate } from '@/utils/helpers'
 
 const route = useRoute()
 const router = useRouter()
-const store = useWorkOrderStore()
 
 const isEdit = computed(() => !!route.params.id)
 const formRef = ref()
 const submitting = ref(false)
 const fileList = ref([])
+
+// 下拉选项（来自后端 /api/meta）
+const deptOptions = ref([])
+const typeOptions = ref([])
+const priorityOptions = ref([])
+const permOptions = ref([])
+const deviceOptions = ref([])
+
+async function loadMeta() {
+  const meta = await getMeta()
+  deptOptions.value = meta.depts
+  typeOptions.value = meta.types
+  priorityOptions.value = meta.priorities
+  permOptions.value = meta.permTypes
+  deviceOptions.value = meta.deviceTypes
+}
 
 // 默认截止时间：明天 18:00
 const defaultDeadline = () => {
@@ -75,26 +86,32 @@ const handleTypeChange = () => {
   formRef.value?.clearValidate()
 }
 
-// ============ 附件上传（自定义 request，模拟上传进度） ============
-const mockUpload = (option) => {
+// ============ 附件上传（真实上传到后端 /api/upload，返回 { name, url }） ============
+const handleUpload = async (option) => {
   const item = reactive({
-    uid: Date.now() + Math.random(),
+    uid: option.file.uid ?? Date.now() + Math.random(),
     name: option.file.name,
     status: 'uploading',
     percentage: 0,
+    url: '',
   })
   fileList.value.push(item)
-  const timer = setInterval(() => {
-    item.percentage = Math.min(100, item.percentage + 25)
-    if (item.percentage >= 100) {
-      clearInterval(timer)
-      item.status = 'success'
-      option.onSuccess({ name: item.name })
-    }
-  }, 220)
+  try {
+    const res = await uploadFile(option.file, (p) => {
+      item.percentage = p
+      option.onProgress({ percent: p })
+    })
+    item.url = res.url
+    item.status = 'success'
+    item.percentage = 100
+    option.onSuccess(res)
+  } catch (err) {
+    item.status = 'fail'
+    option.onError(err)
+  }
 }
 const handleRemove = (file) => {
-  fileList.value = fileList.value.filter((f) => f.name !== file.name)
+  fileList.value = fileList.value.filter((f) => f.uid !== file.uid)
 }
 const handleExceed = () => ElMessage.warning('最多只能上传 5 个附件')
 
@@ -104,10 +121,11 @@ const buildPayload = () => ({
   dept: form.dept,
   type: form.type,
   priority: form.priority,
-  submitter: form.submitter,
   deadline: form.deadline,
   description: form.description,
-  attachments: fileList.value.map((f) => ({ name: f.name })),
+  attachments: fileList.value
+    .filter((f) => f.status === 'success')
+    .map((f) => ({ name: f.name, url: f.url })),
   extra: { ...form.extra },
 })
 
@@ -131,7 +149,6 @@ onBeforeRouteLeave(() => {
 
 // ============ 提交 / 取消 ============
 const handleSubmit = async () => {
-  // 防重复提交
   if (submitting.value) return
   if (fileList.value.some((f) => f.status === 'uploading')) {
     ElMessage.warning('附件正在上传中，请稍候')
@@ -144,28 +161,24 @@ const handleSubmit = async () => {
     return
   }
   submitting.value = true
-  // 模拟提交请求
-  setTimeout(() => {
+  try {
     const payload = buildPayload()
     if (isEdit.value) {
-      const updated = store.updateOrder(route.params.id, payload)
-      submitting.value = false
-      if (!updated) {
-        ElMessage.error('工单不存在，无法编辑')
-        router.replace('/work-orders')
-        return
-      }
+      await updateOrder(route.params.id, payload)
       ElMessage.success('工单修改成功')
       markClean()
       router.replace(`/work-orders/${route.params.id}`)
     } else {
-      const order = store.createOrder(payload)
-      submitting.value = false
+      const order = await createOrder(payload)
       ElMessage.success('工单提交成功')
       markClean()
       router.replace(`/work-orders/${order.id}`)
     }
-  }, 700)
+  } catch {
+    // 错误提示由响应拦截器统一弹出
+  } finally {
+    submitting.value = false
+  }
 }
 
 const handleCancel = () => {
@@ -182,29 +195,76 @@ const handleCancel = () => {
     .catch(() => {})
 }
 
-onMounted(() => {
+// ============ 分配处理人（仅编辑模式 + 部长/超管可见；后端仍做权限兜底） ============
+const canAssign = computed(() => {
+  const role = currentUserInfo()?.role
+  return isEdit.value && ['部长', '超级管理员'].includes(role)
+})
+
+const assignDialogVisible = ref(false)
+const assignLoading = ref(false)
+const assigning = ref(false)
+const handlerOptions = ref([])
+const selectedHandlerId = ref(null)
+
+const openAssignDialog = async () => {
+  assignDialogVisible.value = true
+  assignLoading.value = true
+  try {
+    // 只能分配给启用中的用户
+    handlerOptions.value = await listUsers({ status: '启用' })
+  } finally {
+    assignLoading.value = false
+  }
+}
+
+const handleAssignSubmit = async () => {
+  if (!selectedHandlerId.value) {
+    ElMessage.warning('请选择处理人')
+    return
+  }
+  assigning.value = true
+  try {
+    await assignOrder(route.params.id, selectedHandlerId.value)
+    ElMessage.success('分配成功')
+    assignDialogVisible.value = false
+  } catch {
+    // 错误提示由响应拦截器统一弹出
+  } finally {
+    assigning.value = false
+  }
+}
+
+onMounted(async () => {
+  loadMeta()
   if (!isEdit.value) {
     markClean()
     return
   }
-  const order = store.getById(route.params.id)
-  if (!order) {
+  try {
+    const order = await getOrder(route.params.id)
+    Object.assign(form, {
+      title: order.title,
+      dept: order.dept,
+      type: order.type,
+      priority: order.priority,
+      submitter: order.submitter,
+      deadline: order.deadline,
+      description: order.description,
+      extra: { ...order.extra },
+    })
+    fileList.value = (order.attachments || []).map((f, i) => ({
+      uid: Date.now() + i,
+      name: f.name,
+      url: f.url,
+      status: 'success',
+      percentage: 100,
+    }))
+    markClean()
+  } catch {
     ElMessage.error('工单不存在或已被删除')
     router.replace('/work-orders')
-    return
   }
-  Object.assign(form, {
-    title: order.title,
-    dept: order.dept,
-    type: order.type,
-    priority: order.priority,
-    submitter: order.submitter,
-    deadline: order.deadline,
-    description: order.description,
-    extra: { ...order.extra },
-  })
-  fileList.value = order.attachments.map((f) => ({ name: f.name, status: 'success', percentage: 100 }))
-  markClean()
 })
 </script>
 
@@ -231,21 +291,26 @@ onMounted(() => {
           </el-col>
           <el-col :span="12">
             <el-form-item label="提交人">
-              <el-input v-model="form.submitter" placeholder="提交人" />
+              <div class="submitter-row">
+                <el-input v-model="form.submitter" placeholder="提交人" readonly />
+                <el-button v-if="canAssign" type="primary" plain @click="openAssignDialog">
+                  分配处理人
+                </el-button>
+              </div>
             </el-form-item>
           </el-col>
 
           <el-col :span="12">
             <el-form-item label="所属部门" prop="dept">
               <el-select v-model="form.dept" placeholder="请选择部门" style="width: 100%">
-                <el-option v-for="d in DEPT_OPTIONS" :key="d" :label="d" :value="d" />
+                <el-option v-for="d in deptOptions" :key="d" :label="d" :value="d" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="问题类型" prop="type">
               <el-select v-model="form.type" placeholder="请选择问题类型" style="width: 100%" @change="handleTypeChange">
-                <el-option v-for="t in TYPE_OPTIONS" :key="t" :label="t" :value="t" />
+                <el-option v-for="t in typeOptions" :key="t" :label="t" :value="t" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -253,7 +318,7 @@ onMounted(() => {
           <el-col :span="12">
             <el-form-item label="优先级" prop="priority">
               <el-radio-group v-model="form.priority">
-                <el-radio-button v-for="p in PRIORITY_OPTIONS" :key="p" :value="p" :label="p">
+                <el-radio-button v-for="p in priorityOptions" :key="p" :value="p" :label="p">
                   {{ p }}
                 </el-radio-button>
               </el-radio-group>
@@ -298,7 +363,7 @@ onMounted(() => {
             <el-col :span="12">
               <el-form-item label="权限类型" prop="extra.permType">
                 <el-select v-model="form.extra.permType" placeholder="请选择权限类型" style="width: 100%">
-                  <el-option v-for="p in PERM_OPTIONS" :key="p" :label="p" :value="p" />
+                  <el-option v-for="p in permOptions" :key="p" :label="p" :value="p" />
                 </el-select>
               </el-form-item>
             </el-col>
@@ -329,7 +394,7 @@ onMounted(() => {
             <el-col :span="12">
               <el-form-item label="设备类型" prop="extra.deviceType">
                 <el-select v-model="form.extra.deviceType" placeholder="请选择设备类型" style="width: 100%">
-                  <el-option v-for="d in DEVICE_OPTIONS" :key="d" :label="d" :value="d" />
+                  <el-option v-for="d in deviceOptions" :key="d" :label="d" :value="d" />
                 </el-select>
               </el-form-item>
             </el-col>
@@ -352,7 +417,7 @@ onMounted(() => {
         <el-form-item label="附件">
           <el-upload
             :file-list="fileList"
-            :http-request="mockUpload"
+            :http-request="handleUpload"
             :on-remove="handleRemove"
             :on-exceed="handleExceed"
             :limit="5"
@@ -374,6 +439,28 @@ onMounted(() => {
         </el-form-item>
       </el-form>
     </el-card>
+
+    <!-- 分配处理人弹窗 -->
+    <el-dialog v-model="assignDialogVisible" title="分配处理人" width="420px">
+      <el-select
+        v-model="selectedHandlerId"
+        v-loading="assignLoading"
+        placeholder="请选择处理人"
+        filterable
+        style="width: 100%"
+      >
+        <el-option
+          v-for="u in handlerOptions"
+          :key="u.id"
+          :label="`${u.name}（${u.dept} · ${u.role}）`"
+          :value="u.id"
+        />
+      </el-select>
+      <template #footer>
+        <el-button @click="assignDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="assigning" @click="handleAssignSubmit">确定分配</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -395,5 +482,16 @@ onMounted(() => {
   margin-top: 6px;
   font-size: 12px;
   color: #94a8bd;
+}
+.submitter-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.submitter-row .el-input {
+  flex: 1;
+}
+.submitter-row .el-button {
+  flex-shrink: 0;
 }
 </style>
