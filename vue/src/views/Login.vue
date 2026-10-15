@@ -2,6 +2,7 @@
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { User, Lock, View, Hide, Tickets } from '@element-plus/icons-vue'
+import { login } from '@/api/user'
 
 const router = useRouter()
 const route = useRoute()
@@ -24,21 +25,24 @@ const rules = {
 }
 
 const handleLogin = () => {
+
   loginFormRef.value.validate((valid) => {
     if (!valid) return
     loading.value = true
+  login(loginForm).then(()=>{
+    router.push(route.query.redirect || '/workbench')
+   })
+
+
+
+   })
+  }
+
+
+
     // 模拟登录请求：暂不做角色权限，校验通过即写入登录态
-    setTimeout(() => {
-      loading.value = false
-      localStorage.setItem(
-        'oa_token',
-        JSON.stringify({ username: loginForm.username, loginTime: Date.now() }),
-      )
-      ElMessage.success('登录成功，欢迎回来！')
-      router.push(route.query.redirect || '/workbench')
-    }, 800)
-  })
-}
+
+
 </script>
 
 <template>
@@ -60,8 +64,8 @@ const handleLogin = () => {
 
       <!-- 登录表单 -->
       <el-form
-      
-        ref="loginFormRef"  
+
+        ref="loginFormRef"
         :model="loginForm"
         :rules="rules"
         size="large"

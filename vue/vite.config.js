@@ -18,6 +18,14 @@ export default defineConfig({
       resolvers: [ElementPlusResolver()],
     }),
   ],
+  proxy: {
+    '/api': {
+      target: 'http://localhost:3000',
+      changeOrigin: true,
+      secure: false,
+      rewrite: (path) => path.replace(/^\/api/, ''),//代理路径
+    },
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
