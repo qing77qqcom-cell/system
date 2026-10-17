@@ -11,7 +11,7 @@ import {
 } from '@element-plus/icons-vue'
 import { getStatsOverview } from '@/api/stats'
 import { listOrders } from '@/api/order'
-import { ANNOUNCEMENTS, PRIORITY_TAG_TYPE, STATUS_TAG_TYPE } from '@/mock/data'
+import { ANNOUNCEMENTS, PRIORITY_TAG_TYPE, STATUS_TAG_TYPE } from '@/constants'
 import { currentUser, greeting, isOverdue } from '@/utils/helpers'
 import BaseChart from '@/components/BaseChart.vue'
 

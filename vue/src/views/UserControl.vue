@@ -5,8 +5,7 @@ import { Back } from '@element-plus/icons-vue'
 import { getUser } from '@/api/user'
 import { listOrders } from '@/api/order'
 import { getStatsOverview } from '@/api/stats'
-import { PRIORITY_TAG_TYPE, STATUS_TAG_TYPE } from '@/mock/data'
-import { ROLE_TAG_TYPE, USER_STATUS_TAG_TYPE } from '@/mock/users'
+import { PRIORITY_TAG_TYPE, ROLE_TAG_TYPE, STATUS_TAG_TYPE, USER_STATUS_TAG_TYPE } from '@/constants'
 
 const route = useRoute()
 const router = useRouter()

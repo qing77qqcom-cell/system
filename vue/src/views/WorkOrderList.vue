@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { listOrders, batchCloseOrders, deleteOrder } from '@/api/order'
 import { getMeta } from '@/api/meta'
-import { PRIORITY_TAG_TYPE, STATUS_TAG_TYPE } from '@/mock/data'
+import { PRIORITY_TAG_TYPE, STATUS_TAG_TYPE } from '@/constants'
 import { isOverdue } from '@/utils/helpers'
 
 // 下拉选项（来自后端 /api/meta，避免前后端枚举不一致）

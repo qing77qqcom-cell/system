@@ -12,7 +12,7 @@ import {
 } from '@element-plus/icons-vue'
 import { getOrder, updateOrderStatus, urgeOrder, assignOrder } from '@/api/order'
 import { listUsers } from '@/api/user'
-import { PRIORITY_TAG_TYPE, STATUS_TAG_TYPE } from '@/mock/data'
+import { PRIORITY_TAG_TYPE, STATUS_TAG_TYPE } from '@/constants'
 import { isOverdue, currentUserInfo } from '@/utils/helpers'
 
 const route = useRoute()
