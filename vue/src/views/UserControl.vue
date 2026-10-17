@@ -80,7 +80,7 @@ onMounted(async () => {
             <el-tag :type="USER_STATUS_TAG_TYPE[user.status]" size="small">{{ user.status }}</el-tag>
           </div>
           <div class="profile-sub">
-            账号：{{ user.username }}<span class="divider">|</span>{{ user.dept }}<span class="divider">|</span>{{
+            账号：{{ user.username }}<span class="divider">|</span>{{ user.dept || '无部门' }}<span class="divider">|</span>{{
               user.email }}
           </div>
         </div>
@@ -90,7 +90,7 @@ onMounted(async () => {
         <el-descriptions-item label="账号">{{ user.username }}</el-descriptions-item>
         <el-descriptions-item label="姓名">{{ user.name }}</el-descriptions-item>
         <el-descriptions-item label="角色">{{ user.role }}</el-descriptions-item>
-        <el-descriptions-item label="所属部门">{{ user.dept }}</el-descriptions-item>
+        <el-descriptions-item label="所属部门">{{ user.dept || '—' }}</el-descriptions-item>
         <el-descriptions-item label="邮箱">{{ user.email }}</el-descriptions-item>
         <el-descriptions-item label="创建时间">{{ user.createdAt }}</el-descriptions-item>
       </el-descriptions>

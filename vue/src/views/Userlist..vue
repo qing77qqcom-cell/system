@@ -1,13 +1,17 @@
 <script setup>
-import { onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Delete, Edit, Key, Plus, Refresh, Search, SwitchButton, View } from '@element-plus/icons-vue'
 import { DEPT_OPTIONS } from '@/mock/data'
 import { ROLE_OPTIONS, ROLE_TAG_TYPE, USER_STATUS_TAG_TYPE } from '@/mock/users'
 import { listUsers, createUser, updateUser, toggleUserStatus, resetUserPassword, deleteUser } from '@/api/user'
+import { currentUserInfo } from '@/utils/helpers'
 
 const route = useRoute()
 const router = useRouter()
+
+// 用户写操作（增删改/启禁/重置密码）后端仅超管可调，前端隐藏入口保持一致；部长本部门只读
+const isAdmin = computed(() => currentUserInfo()?.role === '超级管理员')
 
 // ============ 列表数据 ============
 const users = ref([])
@@ -94,7 +98,13 @@ const rules = {
   ],
   name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
   role: [{ required: true, message: '请选择角色', trigger: 'change' }],
-  dept: [{ required: true, message: '请选择部门', trigger: 'change' }],
+  // 超级管理员可不属于任何部门（与后端校验一致），其余角色必选
+  dept: [
+    {
+      validator: (r, v, cb) => (form.role === '超级管理员' || v ? cb() : cb(new Error('请选择部门'))),
+      trigger: 'change',
+    },
+  ],
   email: [
     { required: true, message: '请输入邮箱', trigger: 'blur' },
     { type: 'email', message: '邮箱格式不正确', trigger: 'blur' },
@@ -128,12 +138,14 @@ const handleSubmit = async () => {
     return
   }
   try {
+    // 超管允许不选部门 → 提交 null（后端对超管放行无部门）
+    const dept = form.role === '超级管理员' ? form.dept || null : form.dept
     if (dialogMode.value === 'add') {
       await createUser({
         username: form.username.trim().toLowerCase(),
         name: form.name.trim(),
         role: form.role,
-        dept: form.dept,
+        dept,
         email: form.email?.trim() || null,
       })
       ElMessage.success('用户创建成功')
@@ -141,7 +153,7 @@ const handleSubmit = async () => {
       await updateUser(form.id, {
         name: form.name.trim(),
         role: form.role,
-        dept: form.dept,
+        dept,
         email: form.email?.trim() || null,
       })
       ElMessage.success('用户修改成功')
@@ -253,7 +265,7 @@ onMounted(loadList)
         <span class="table-title">用户列表（{{ users.length }}）</span>
         <div>
           <el-button text size="small" :icon="Refresh" @click="loadList">刷新</el-button>
-          <el-button type="primary" :icon="Plus" @click="openAdd">新增用户</el-button>
+          <el-button v-if="isAdmin" type="primary" :icon="Plus" @click="openAdd">新增用户</el-button>
         </div>
       </div>
 
@@ -265,7 +277,9 @@ onMounted(loadList)
             <el-tag :type="ROLE_TAG_TYPE[row.role]" size="small">{{ row.role }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="dept" label="所属部门" width="100" />
+        <el-table-column label="所属部门" width="100">
+          <template #default="{ row }">{{ row.dept || '—' }}</template>
+        </el-table-column>
         <el-table-column prop="email" label="邮箱" min-width="170" show-overflow-tooltip />
         <el-table-column label="状态" width="80" align="center">
           <template #default="{ row }">
@@ -273,18 +287,20 @@ onMounted(loadList)
           </template>
         </el-table-column>
         <el-table-column prop="createdAt" label="创建时间" width="160" />
-        <el-table-column label="操作" width="300" fixed="right" align="center">
+        <el-table-column label="操作" :width="isAdmin ? 300 : 80" fixed="right" align="center">
           <template #default="{ row }">
             <el-button text type="primary" size="small" :icon="View" @click="goDetail(row)">详情</el-button>
-            <el-button text type="primary" size="small" :icon="Edit" @click="openEdit(row)">编辑</el-button>
-            <el-button text :type="row.status === '启用' ? 'warning' : 'success'" size="small" :icon="SwitchButton"
-              @click="handleToggle(row)">
-              {{ row.status === '启用' ? '禁用' : '启用' }}
-            </el-button>
-            <el-button text type="info" size="small" :icon="Key" @click="handleResetPwd(row)">
-              重置密码
-            </el-button>
-            <el-button text type="danger" size="small" :icon="Delete" @click="handleDelete(row)">删除</el-button>
+            <template v-if="isAdmin">
+              <el-button text type="primary" size="small" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+              <el-button text :type="row.status === '启用' ? 'warning' : 'success'" size="small" :icon="SwitchButton"
+                @click="handleToggle(row)">
+                {{ row.status === '启用' ? '禁用' : '启用' }}
+              </el-button>
+              <el-button text type="info" size="small" :icon="Key" @click="handleResetPwd(row)">
+                重置密码
+              </el-button>
+              <el-button text type="danger" size="small" :icon="Delete" @click="handleDelete(row)">删除</el-button>
+            </template>
           </template>
         </el-table-column>
         <template #empty>

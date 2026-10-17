@@ -244,7 +244,7 @@
 | password_hash | VARCHAR(100) | NOT NULL | bcrypt 哈希 |
 | name | VARCHAR(50) | NOT NULL | 姓名 |
 | role | VARCHAR(10) | NOT NULL CHECK (role IN ('超级管理员','部长','普通员工')) | 中文值与前端一致 |
-| dept | VARCHAR(10) | NOT NULL CHECK (dept IN ('技术部','市场部','财务部','人事部','行政部')) | |
+| dept | VARCHAR(10) | NULL CHECK (dept IN ('技术部','市场部','财务部','人事部','行政部')) | 可为空：超级管理员不属于任何部门；部长按 dept 过滤列表时天然不含 admin |
 | email | VARCHAR(100) | NOT NULL | 唯一性 → §8 待确认 |
 | status | VARCHAR(4) | NOT NULL DEFAULT '启用' CHECK (status IN ('启用','禁用')) | |
 | created_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |

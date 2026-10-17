@@ -51,3 +51,9 @@ CREATE INDEX IF NOT EXISTS idx_orders_priority   ON orders (priority);
 CREATE INDEX IF NOT EXISTS idx_users_role        ON users (role);
 CREATE INDEX IF NOT EXISTS idx_users_dept        ON users (dept);
 CREATE INDEX IF NOT EXISTS idx_logs_order        ON order_logs (order_id);
+
+-- ============ 增量迁移（幂等） ============
+-- 系统管理员不属于任何部门：CHECK 对 NULL 天然放行，只需放开 NOT NULL
+-- 效果：部长按 dept 过滤的查询天然看不到 admin（SQL 中 NULL 不参与 = 比较）
+ALTER TABLE users ALTER COLUMN dept DROP NOT NULL;
+UPDATE users SET dept = NULL WHERE username = 'admin';

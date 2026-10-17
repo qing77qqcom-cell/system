@@ -9,23 +9,32 @@ import {
   Document,
   Grid,
 } from '@element-plus/icons-vue'
-import { useWorkOrderStore } from '@/stores/workOrder'
 import { getStatsOverview } from '@/api/stats'
+import { listOrders } from '@/api/order'
 import { ANNOUNCEMENTS, PRIORITY_TAG_TYPE, STATUS_TAG_TYPE } from '@/mock/data'
 import { currentUser, greeting, isOverdue } from '@/utils/helpers'
 import BaseChart from '@/components/BaseChart.vue'
 
 const router = useRouter()
-const store = useWorkOrderStore()
 
 // 工单状态统计（来自后端 /api/stats/overview，按角色范围统计全部工单）
 const stats = ref({ pending: 0, processing: 0, completed: 0, closed: 0, returned: 0 })
 
+// 我的待办：可见范围内「待处理 / 处理中」的工单，按截止时间升序取 5 条
+// （已退回不算待办——那是在等提交人重新提交）
+const todos = ref([])
+
 onMounted(async () => {
   try {
-    stats.value = await getStatsOverview()
+    // 统计与列表互不依赖，并行请求
+    const [overview, orders] = await Promise.all([getStatsOverview(), listOrders()])
+    stats.value = overview
+    todos.value = orders
+      .filter((o) => ['待处理', '处理中'].includes(o.status))
+      .sort((a, b) => (a.deadline > b.deadline ? 1 : -1))
+      .slice(0, 5)
   } catch (e) {
-    console.error('[Workbench mounted] 加载统计失败:', e)
+    console.error('[Workbench mounted] 加载工作台数据失败:', e)
   }
 })
 
@@ -58,8 +67,6 @@ const todayText = computed(() => {
   const week = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()]
   return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日 星期${week}`
 })
-
-const todos = computed(() => store.todoList.slice(0, 5))
 
 const goDetail = (id) => router.push(`/work-orders/${id}`)
 
@@ -109,7 +116,7 @@ const openPortal = (name) => ElMessage.info(`「${name}」为演示入口，暂�
               </el-button>
             </div>
           </template>
-          <el-table :data="todos" size="small" @row-click="goDetail" class="todo-table">
+          <el-table :data="todos" size="small" @row-click="(row) => goDetail(row.id)" class="todo-table">
             <el-table-column prop="id" label="工单编号" width="150" />
             <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
             <el-table-column label="优先级" width="80">

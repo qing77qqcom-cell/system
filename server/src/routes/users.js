@@ -19,10 +19,12 @@ const validateProfile = (body) => {
   assert(name, '姓名不能为空')
   assert(name.length <= 50, '姓名过长')
   assert(ROLES.includes(body.role), '角色不合法')
-  assert(DEPT_OPTIONS.includes(body.dept), '部门不合法')
+  const dept = body.dept || null
+  // 超级管理员可不属于任何部门，其余角色必须归属合法部门
+  assert(body.role === '超级管理员' || DEPT_OPTIONS.includes(dept), '部门不合法')
   const email = body.email ? String(body.email).trim() : null
   if (email) assert(isEmail(email), '邮箱格式不正确')
-  return { name, role: body.role, dept: body.dept, email }
+  return { name, role: body.role, dept, email }
 }
 
 const USER_COLS = 'id, username, name, role, dept, email, status, created_at'
