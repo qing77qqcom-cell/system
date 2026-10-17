@@ -22,7 +22,11 @@ const store = useWorkOrderStore()
 const stats = ref({ pending: 0, processing: 0, completed: 0, closed: 0, returned: 0 })
 
 onMounted(async () => {
-  stats.value = await getStatsOverview()
+  try {
+    stats.value = await getStatsOverview()
+  } catch (e) {
+    console.error('[Workbench mounted] 加载统计失败:', e)
+  }
 })
 
 // 工单状态分布（环形饼图）：5 个状态互斥，合计 = 范围内全部工单
