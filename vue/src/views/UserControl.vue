@@ -142,7 +142,7 @@ onMounted(async () => {
   <!-- 用户不存在 -->
   <el-result v-else icon="warning" title="用户不存在或已被删除" sub-title="请返回列表重新选择">
     <template #extra>
-      <el-button type="primary" @click="router.replace('/usercontrol')">返回用户列表</el-button>
+      <el-button type="primary" @click="router.replace('/systemcontrol/usercontrol')">返回用户列表</el-button>
     </template>
   </el-result>
 </template>

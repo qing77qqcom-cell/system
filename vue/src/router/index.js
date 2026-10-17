@@ -28,7 +28,7 @@ const router = createRouter({
         {
           path: 'work-orders',
           name: 'workOrderList',
-          component: () => import('@/views/WorkOrderList.vue'),
+          component: () => import('@/layout/listLayOut.vue'),
           meta: { title: '工单列表' },
         },
         {
@@ -49,11 +49,35 @@ const router = createRouter({
           component: () => import('@/views/WorkOrderForm.vue'),
           meta: { title: '编辑工单' },
         },
+
         {
-          path: 'usercontrol',
-          name: 'userList',
-          component: () => import('@/views/Userlist..vue'),
-          meta: { title: '用户管理', roles: ['部长', '超级管理员'] },
+          path: 'systemcontrol',
+          name: 'systemList',
+          redirect: '/systemcontrol/deptcontrol',
+          component: () => import('@/layout/systemLayOut.vue'),
+
+          meta: { title: '系统设置', roles: ['部长', '超级管理员'] },
+          children: [
+            {
+              // 子路由用相对路径（不带 /），才会拼成 /systemcontrol/usercontrol
+              path: 'usercontrol',
+              name: 'userList',
+              component: () => import('@/views/UserList.vue'),
+              meta: { title: '用户管理' },
+            },
+            {
+              path: 'rolecontrol',
+              name: 'roleControl',
+              component: () => import('@/views/RoleList.vue'),
+              meta: { title: '角色权限' },
+            },
+            {
+              path: 'deptcontrol',
+              name: 'deptControl',
+              component: () => import('@/views/deptcontrol.vue'),
+              meta: { title: '组织架构' },
+            },
+          ],
         },
         {
           // 员工可查看自己的详情页，权限范围由后端按 id 控制，故不加 roles

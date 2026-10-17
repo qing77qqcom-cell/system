@@ -1,40 +1,28 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
-import {
-  Tickets,
-  Odometer,
-  List,
-  Avatar,
-  Fold,
-  Expand,
-  ArrowDown,
-  SwitchButton,
-  UserFilled,
-} from '@element-plus/icons-vue'
+import { Tickets, ArrowDown, SwitchButton, UserFilled } from '@element-plus/icons-vue'
 import { currentUser, currentUserInfo } from '@/utils/helpers'
 
 const route = useRoute()
 const router = useRouter()
-const collapsed = ref(false)
 
-const menus = [
-  { index: '/workbench', title: '工作台', icon: Odometer, roles: null },
-  { index: '/work-orders', title: '工单列表', icon: List, roles: null },
-  { index: '/usercontrol', title: '用户管理', icon: Avatar, roles: ['部长', '超级管理员'] },
+const navs = [
+  { index: '/workbench', title: '工作台', roles: null },
+  { index: '/work-orders', title: '工单列表', roles: null },
+  { index: '/systemcontrol', title: '系统设置', roles: ['部长', '超级管理员'] },
 ]
 
-const visibleMenus = computed(() => {
-  return menus.filter(menu => menu.roles === null || menu.roles.includes(currentUserInfo().role))
-})
+// 顶部导航按角色过滤（普通员工看不到系统设置）
+const visibleNavs = computed(() =>
+  navs.filter((n) => !n.roles || n.roles.includes(currentUserInfo()?.role)),
+)
 
-
-
-// 详情页归并到所属列表菜单高亮（/work-orders/* → 工单列表，/usercontrol/* → 用户管理）
+// 详情页归并到所属列表菜单高亮（/work-orders/* → 工单列表，/usercontrol/* → 系统设置）
 const activeMenu = computed(() => {
   if (route.path.startsWith('/work-orders')) return '/work-orders'
-  if (route.path.startsWith('/usercontrol')) return '/usercontrol'
+  if (route.path.startsWith('/usercontrol')) return '/systemcontrol'
   return route.path
 })
 
@@ -54,35 +42,25 @@ const handleLogout = () => {
 
 <template>
   <el-container class="layout">
-    <!-- 侧边栏 -->
-    <el-aside :width="collapsed ? '64px' : '220px'" class="sidebar">
-      <div class="logo-area">
+
+           <!-- 顶栏 -->
+       <el-header class="header">
+        <div class="logo-area">
         <el-icon :size="26" class="logo-icon">
           <Tickets />
         </el-icon>
-        <span v-show="!collapsed" class="logo-text">OA工单管理</span>
+        <span class="logo-text">OA工单管理系统</span>
       </div>
-      <el-menu :default-active="activeMenu" :collapse="collapsed" :collapse-transition="false" router class="side-menu">
-        <el-menu-item v-for="menu in visibleMenus" :key="menu.index" :index="menu.index">
-          <el-icon>
-            <component :is="menu.icon" />
-          </el-icon>
-          <template #title>{{ menu.title }}</template>
-        </el-menu-item>
+      <div class="nav-area">
+        <!-- router 是 el-menu 的属性（写在 menu-item 上无效）：开启后点击项按其 index 跳转；
+             ellipsis 让窄屏放不下的项自动收进“更多”子菜单 -->
+        <el-menu :default-active="activeMenu" mode="horizontal" router ellipsis class="top-menu">
+          <el-menu-item v-for="nav in visibleNavs" :key="nav.index" :index="nav.index">
+            {{ nav.title }}
+          </el-menu-item>
+        </el-menu>
+      </div>
 
-      </el-menu>
-    </el-aside>
-
-    <el-container>
-      <!-- 顶栏 -->
-      <el-header class="header">
-        <div class="header-left">
-          <el-icon class="collapse-btn" :size="18" @click="collapsed = !collapsed">
-            <Fold v-if="!collapsed" />
-            <Expand v-else />
-          </el-icon>
-          <span class="page-title">{{ route.meta.title || '工作台' }}</span>
-        </div>
         <div class="header-right">
           <el-dropdown @command="(cmd) => cmd === 'logout' && handleLogout()">
             <span class="user-info">
@@ -101,36 +79,67 @@ const handleLogout = () => {
             </template>
           </el-dropdown>
         </div>
-      </el-header>
+       </el-header>
 
       <!-- 内容区 -->
       <el-main class="main">
+        <div class="header-left">
+          <span class="page-title" v-if="route.meta.title !== '工作台'">{{ route.meta.title || '' }}</span>
+        </div>
         <router-view />
       </el-main>
     </el-container>
-  </el-container>
+
 </template>
 
 <style scoped>
+/* ==================== 整体布局 ==================== */
 .layout {
   height: 100vh;
 }
 
-/* 侧边栏：深蓝渐变 */
-.sidebar {
-  background: linear-gradient(180deg, #155494 0%, #0e3f73 100%);
-  transition: width 0.25s;
-  overflow: hidden;
+/* ==================== 内容区 ==================== */
+.main {
+  background: #f0f5fb;
+  padding: 16px;
+  overflow-y: auto;
 }
 
+/* 内容区顶部小条：页面标题 */
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.page-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #14487e;
+}
+
+/* ==================== 顶栏 ==================== */
+/* 整体：弹性三段式 —— logo 定宽内容 / 导航占据剩余空间 / 用户区 auto margin 推到最右 */
+.header {
+  height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 0 20px;
+  background: #fff;
+  border-bottom: 1px solid #e6eef7;
+  box-shadow: 0 1px 4px rgba(20, 72, 126, 0.05);
+}
+
+/* --- logo 区 --- */
 .logo-area {
   height: 60px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  color: #fff;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .logo-icon {
@@ -142,64 +151,27 @@ const handleLogout = () => {
   font-size: 18px;
   font-weight: 600;
   letter-spacing: 1px;
+  color: rgb(27, 27, 27);
 }
 
-.side-menu {
-  border-right: none;
+/* --- 中间导航区：flex:1 吃掉剩余空间 --- */
+.nav-area {
+  flex: 1;
+  /* el-menu horizontal 不换行，min-width:auto 会按内容宽度拒绝收缩，
+     必须显式允许压缩，否则窄屏会把整个 header 撑爆 */
+  min-width: 0;
+}
+
+/* 顶部菜单去掉默认底边框，与 header 自己的下边框统一 */
+.top-menu {
+  border-bottom: none;
   background: transparent;
 }
 
-.side-menu :deep(.el-menu-item) {
-  color: #c7def7;
-  margin: 4px 12px;
-  border-radius: 8px;
-}
-
-.side-menu :deep(.el-menu-item:hover) {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-}
-
-.side-menu :deep(.el-menu-item.is-active) {
-  background: linear-gradient(135deg, #42a5f5 0%, #1e88e5 100%);
-  color: #fff;
-  box-shadow: 0 4px 12px rgba(30, 136, 229, 0.4);
-}
-
-.side-menu :deep(.el-menu--collapse .el-menu-item) {
-  margin: 4px 8px;
-}
-
-/* 顶栏 */
-.header {
-  height: 60px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: #fff;
-  border-bottom: 1px solid #e6eef7;
-  box-shadow: 0 1px 4px rgba(20, 72, 126, 0.05);
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.collapse-btn {
-  cursor: pointer;
-  color: #5a7796;
-}
-
-.collapse-btn:hover {
-  color: #1e88e5;
-}
-
-.page-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #14487e;
+/* --- 右侧用户区 --- */
+.header-right {
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .user-info {
@@ -215,10 +187,15 @@ const handleLogout = () => {
   font-size: 14px;
 }
 
-/* 内容区 */
-.main {
-  background: #f0f5fb;
-  padding: 16px;
-  overflow-y: auto;
+/* --- 移动端适配：收窄间距、隐藏 logo 文字；导航保留，溢出项由 el-menu ellipsis 收纳 --- */
+@media (max-width: 768px) {
+  .header {
+    gap: 12px;
+    padding: 0 12px;
+  }
+
+  .logo-text {
+    display: none;
+  }
 }
 </style>

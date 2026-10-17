@@ -55,6 +55,13 @@ const applied = reactive({
 
 const selectedRows = ref([])
 
+defineProps({
+  title: {
+    type: String,
+    default: '已提交',
+  },
+})
+
 // 从 URL query 恢复查询状态（URL 状态保持）
 function hydrateFromQuery(q = route.query) {
   queryForm.keyword = q.keyword || ''
@@ -210,7 +217,7 @@ const handleClickSubmitter = (row) => {
   if (row.submitterId) {
     router.push(`/usercontrol/${row.submitterId}`)
   } else {
-    router.push({ path: '/usercontrol', query: { submitter: row.submitter } })
+    router.push({ path: '/systemcontrol/usercontrol', query: { submitter: row.submitter } })
   }
 }
 
@@ -275,7 +282,7 @@ loadList()
     <el-card shadow="never" class="table-card">
       <div class="table-toolbar">
         <div class="toolbar-left">
-          <span class="table-title">工单列表</span>
+          <span class="table-title" :title="title">{{title || '已提交'}}</span>
           <el-button type="danger" plain size="small" :disabled="selectedRows.length === 0" @click="handleBatchClose">
             批量关闭{{ selectedRows.length ? `（${selectedRows.length}）` : '' }}
           </el-button>
