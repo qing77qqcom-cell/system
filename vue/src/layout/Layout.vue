@@ -13,11 +13,23 @@ import {
   SwitchButton,
   UserFilled,
 } from '@element-plus/icons-vue'
-import { currentUser } from '@/utils/helpers'
+import { currentUser, currentUserInfo } from '@/utils/helpers'
 
 const route = useRoute()
 const router = useRouter()
 const collapsed = ref(false)
+
+const menus = [
+  { index: '/workbench', title: '工作台', icon: Odometer, roles: null },
+  { index: '/work-orders', title: '工单列表', icon: List, roles: null },
+  { index: '/usercontrol', title: '用户管理', icon: Avatar, roles: ['部长', '超级管理员'] },
+]
+
+const visibleMenus = computed(() => {
+  return menus.filter(menu => menu.roles === null || menu.roles.includes(currentUserInfo().role))
+})
+
+
 
 // 详情页归并到所属列表菜单高亮（/work-orders/* → 工单列表，/usercontrol/* → 用户管理）
 const activeMenu = computed(() => {
@@ -51,24 +63,13 @@ const handleLogout = () => {
         <span v-show="!collapsed" class="logo-text">OA工单管理</span>
       </div>
       <el-menu :default-active="activeMenu" :collapse="collapsed" :collapse-transition="false" router class="side-menu">
-        <el-menu-item index="/workbench">
+        <el-menu-item v-for="menu in visibleMenus" :key="menu.index" :index="menu.index">
           <el-icon>
-            <Odometer />
+            <component :is="menu.icon" />
           </el-icon>
-          <template #title>工作台</template>
+          <template #title>{{ menu.title }}</template>
         </el-menu-item>
-        <el-menu-item index="/work-orders">
-          <el-icon>
-            <List />
-          </el-icon>
-          <template #title>工单列表</template>
-        </el-menu-item>
-        <el-menu-item index="/usercontrol">
-          <el-icon>
-            <Avatar />
-          </el-icon>
-          <template #title>用户管理</template>
-        </el-menu-item>
+
       </el-menu>
     </el-aside>
 
