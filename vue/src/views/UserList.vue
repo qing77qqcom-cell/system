@@ -6,6 +6,7 @@ import { DEPT_OPTIONS, ROLE_OPTIONS, ROLE_TAG_TYPE, USER_STATUS_TAG_TYPE } from 
 import { listUsers, createUser, updateUser, toggleUserStatus, resetUserPassword, deleteUser } from '@/api/user'
 import { currentUserInfo } from '@/utils/helpers'
 
+
 const route = useRoute()
 const router = useRouter()
 
@@ -227,12 +228,30 @@ watch(
   },
   { immediate: true },
 )
+// 左侧角色快捷筛选：点击后同步到查询表单的 role，再走同一套查询流程
+const activeRole = computed(() => queryForm.role || '全部')
+
+const handleRoleSelect = (role) => {
+  queryForm.role = role === '全部' ? '' : role
+  handleSearch()
+}
 
 onMounted(loadList)
 </script>
 
 <template>
   <div class="user-list">
+
+       <!-- 筛选单：左侧角色快捷筛选（el-menu-item 必须包在 el-menu 内） -->
+        <div class="first">
+          <el-menu :default-active="activeRole" class="role-menu" @select="handleRoleSelect">
+            <el-menu-item index="全部">全部角色</el-menu-item>
+            <el-menu-item v-for="r in ROLE_OPTIONS" :key="r" :index="r">{{ r }}</el-menu-item>
+          </el-menu>
+       </div>
+
+
+        <div class="second">
     <!-- 查询区域 -->
     <el-card shadow="never" class="search-card">
       <el-form :model="queryForm" inline>
@@ -342,10 +361,36 @@ onMounted(loadList)
         <el-button type="primary" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.user-list {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+/* 左侧角色筛选：定宽、不参与收缩 */
+.first {
+  width: 160px;
+  flex-shrink: 0;
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px 0;
+  box-shadow: 0 2px 8px rgba(20, 72, 126, 0.06);
+}
+
+.role-menu {
+  border-right: none;
+}
+
+.second {
+  flex: 1;
+  /* flex 子项默认 min-width:auto，表格宽时会撑破布局 */
+  min-width: 0;
+}
 .search-card,
 .table-card {
   border-radius: 10px;

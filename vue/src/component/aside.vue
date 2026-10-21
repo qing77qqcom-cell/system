@@ -8,7 +8,11 @@
       <template #title>{{ menu.title }}</template>
     </el-menu-item>
   </el-menu>
+
+
 </template>
+
+
 
 <script setup>
 // 高亮用 $route.fullPath（含 query），这样 ?status=xxx 的项能精确对应

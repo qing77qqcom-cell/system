@@ -1,5 +1,6 @@
 // 日期时间工具：API 层日期一律输出 'YYYY-MM-DD HH:mm' 字符串（东八区）
 // 实现与时区无关：手动 +8 小时后取 UTC 分量，避免依赖进程 TZ 设置
+import { isDateString, isDateTimeString } from './validate.js'
 
 const pad = (n) => String(n).padStart(2, '0')
 

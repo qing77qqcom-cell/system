@@ -11,31 +11,40 @@ const router = createRouter({
     {
       path: '/login',
       name: 'login',
-      component: Login,
+      component: Login,//对应app.vue的router-view组件
       meta: { title: '登录' },
     },
     {
       path: '/',
-      component: Layout,
+      component: Layout,//对应app.vue的router-view组件
       redirect: '/workbench', // 强制跳转工作台
       children: [
         {
           path: 'workbench',
           name: 'workbench',
-          component: () => import('@/views/Workbench.vue'),
+          component: () => import('@/views/Workbench.vue'),//对应layout/Layout.vue的router-view组件
           meta: { title: '工作台' },
         },
         {
           path: 'work-orders',
-          name: 'workOrderList',
+          name: 'work-orders',
           component: () => import('@/layout/listLayOut.vue'),
-          meta: { title: '工单列表' },
+          meta: { title: '工单列表', menuKey: 'list' },
+           children: [
+            {
+              path: '',
+               name: 'workOrderList',
+               component: () => import('@/views/WorkOrderList.vue'), meta: { title: '工单列表' }
+            },
+
+          ]
         },
         {
           path: 'work-orders/create',
           name: 'workOrderCreate',
           component: () => import('@/views/WorkOrderForm.vue'),
           meta: { title: '新建工单' },
+
         },
         {
           path: 'work-orders/:id',
@@ -53,16 +62,19 @@ const router = createRouter({
         {
           path: 'systemcontrol',
           name: 'systemList',
-          redirect: '/systemcontrol/deptcontrol',
-          component: () => import('@/layout/systemLayOut.vue'),
 
-          meta: { title: '系统设置', roles: ['部长', '超级管理员'] },
+          component: () => import('@/layout/listLayOut.vue'),
+
+          meta: { title: '系统设置',
+            roles: ['部长', '超级管理员'] ,
+            menuKey: 'system'
+          },
           children: [
             {
               // 子路由用相对路径（不带 /），才会拼成 /systemcontrol/usercontrol
-              path: 'usercontrol',
+              path: '',
               name: 'userList',
-              component: () => import('@/views/UserList.vue'),
+              component: () => import('@/views/UserList.vue'),//
               meta: { title: '用户管理' },
             },
             {
@@ -76,6 +88,12 @@ const router = createRouter({
               name: 'deptControl',
               component: () => import('@/views/deptcontrol.vue'),
               meta: { title: '组织架构' },
+            },
+             {
+              path: 'userlogcontrol',
+              name: 'userlogControl',
+              component: () => import('@/views/UserLogControl.vue'),
+              meta: { title: '用户操作日志' },
             },
           ],
         },
