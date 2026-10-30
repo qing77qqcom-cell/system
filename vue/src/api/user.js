@@ -5,6 +5,11 @@ export function login(data) {
   return service.post('/login', data)
 }
 
+// 退出登录（后端写登出日志；JWT 无黑名单，客户端销毁 token 即可）
+export function logout() {
+  return service.post('/logout')
+}
+
 // 用户列表（支持 keyword / role / status 筛选）
 export function listUsers(params = {}) {
   return service.get('/users', { params })

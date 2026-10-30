@@ -1,0 +1,1557 @@
+openapi: 3.0.3
+info:
+  title: OA 工单管理系统 API
+  version: 1.0.0
+  description: |
+    依据《完整业务权限规则文档》与《数据分析权限独立设计文档》实现的后端接口。
+    - 所有权限、动作、数据范围由后端逐请求动态校验
+    - 超管全平台可见；部长仅本部门；员工仅自己申请或处理的工单
+    - 动作网关：POST /api/tickets/:id/actions（20 动作统一入口）
+    - 时间格式：YYYY-MM-DD HH:mm（Asia/Shanghai）
+    - 响应信封：成功 `{ code:0, message:'ok', data:... }`；失败见 §错误码表
+servers:
+  - url: http://localhost:3000
+    description: 本地开发环境
+
+tags:
+  - name: 认证
+  - name: 工单
+  - name: 用户
+  - name: 系统配置
+  - name: 日志
+  - name: 通知
+  - name: 统计
+  - name: 附件与健康检查
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    ticketId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, example: WO202610221234 }
+    userId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+    period:
+      name: period
+      in: query
+      description: 周期粒度（默认 month）
+      schema:
+        type: string
+        enum: [day, week, month, quarter, year]
+        default: month
+    date:
+      name: date
+      in: query
+      description: 周期锚点（默认当前日期）
+      schema: { type: string, format: date }
+
+  schemas:
+    ApiEnvelope:
+      type: object
+      properties:
+        code: { type: integer, example: 0 }
+        message: { type: string, example: ok }
+        data: {}
+
+    ErrorResponse:
+      type: object
+      properties:
+        code: { type: integer, description: 业务码 }
+        message: { type: string, description: 中文提示 }
+
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        username: { type: string }
+        name: { type: string }
+        role:
+          type: string
+          enum: [超级管理员, 技术部部长, 技术部普通员工]
+        dept: { type: string, nullable: true }
+        email: { type: string, nullable: true }
+        status:
+          type: string
+          enum: [启用, 禁用, 锁定]
+        createdAt: { type: string, format: date-time }
+
+    Ticket:
+      type: object
+      properties:
+        id: { type: string, example: WO202610221234 }
+        type:
+          type: string
+          enum: [fault_repair, account_permission, reimbursement]
+        status:
+          type: string
+          enum: [draft, pending_approval, pending_assignment, pending_acceptance, pending_processing, processing, pending_confirmation, suspended, cancelled, closed]
+        priority: { type: string, nullable: true }
+        faultCategory: { type: string, nullable: true }
+        title: { type: string }
+        description: { type: string, nullable: true }
+        dept: { type: string }
+        applicantId: { type: integer }
+        applicant: { type: string }
+        handlerId: { type: integer, nullable: true }
+        handler: { type: string, nullable: true }
+        currentRound: { type: integer }
+        escalatedLevel: { type: integer }
+        slaExempt: { type: boolean }
+        reopenCount: { type: integer }
+        extra: { type: object, description: 按 form_field_configs 自定义字段 }
+        attachments:
+          type: array
+          items: { type: string }
+        version: { type: integer }
+        firstSubmittedAt: { type: string, format: date-time, nullable: true }
+        closedAt: { type: string, format: date-time, nullable: true }
+        archivedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        overallSla:
+          type: object
+          nullable: true
+          properties:
+            slaStatus:
+              type: string
+              enum: [pending, running, paused, breached]
+            deadlineAt: { type: string, format: date-time }
+            isBreached: { type: boolean }
+        abnormalTags:
+          type: array
+          description: 仅 /api/tickets/abnormal 附带
+          items: { type: string }
+
+    Approval:
+      type: object
+      properties:
+        id: { type: integer }
+        round: { type: integer }
+        seq: { type: integer }
+        nodeName: { type: string }
+        assigneeId: { type: integer, nullable: true }
+        assignee: { type: string, nullable: true }
+        assigneeRole: { type: string }
+        status:
+          type: string
+          enum: [pending, approved, rejected, skipped, cancelled]
+        comment: { type: string, nullable: true }
+        assignedAt: { type: string, format: date-time, nullable: true }
+        actedAt: { type: string, format: date-time, nullable: true }
+        actedBy: { type: integer, nullable: true }
+        actedByName: { type: string, nullable: true }
+        actedAs: { type: string, nullable: true, description: 代执行角色标识（如 builtin_finance） }
+
+    TicketDetail:
+      allOf:
+        - $ref: '#/components/schemas/Ticket'
+        - type: object
+          properties:
+            approvals:
+              type: array
+              items: { $ref: '#/components/schemas/Approval' }
+
+    Log:
+      type: object
+      properties:
+        id: { type: integer }
+        action: { type: string }
+        fromStatus: { type: string, nullable: true }
+        toStatus: { type: string, nullable: true }
+        user: { type: string, description: 操作人；代执行时附加「（代财务部角色）」后缀 }
+        operatorId: { type: integer, nullable: true }
+        triggerSource: { type: string, enum: [user, scheduler, business_event, system_rule] }
+        remark: { type: string }
+        metadata: { type: object, nullable: true }
+        time: { type: string, format: date-time }
+
+    SlaRecord:
+      type: object
+      properties:
+        id: { type: integer }
+        metricType:
+          type: string
+          enum: [first_response, approval, processing, confirmation, payment, overall]
+        slaStatus:
+          type: string
+          enum: [pending, running, paused, breached, met, breached_closed, cancelled]
+        targetDuration: { type: integer, description: 毫秒 }
+        elapsedDuration:
+          type: integer
+          description: 实时已消耗毫秒，后端动态计算，前端不得自行计算
+        deadlineAt: { type: string, format: date-time, nullable: true }
+        isBreached: { type: boolean }
+        breachedDuration: { type: integer, description: 累计超时时长毫秒 }
+        ruleVersion: { type: integer }
+
+    SlaEvent:
+      type: object
+      properties:
+        id: { type: integer }
+        slaId: { type: integer }
+        metricType: { type: string }
+        eventType: { type: string }
+        fromStatus: { type: string, nullable: true }
+        toStatus: { type: string, nullable: true }
+        triggerSource: { type: string }
+        operatorId: { type: integer, nullable: true }
+        reason: { type: string, nullable: true }
+        metadata: { type: object, nullable: true }
+        elapsedMs: { type: integer, nullable: true }
+        eventTime: { type: string, format: date-time }
+
+paths:
+
+# ==================== 认证 ====================
+  /api/login:
+    post:
+      tags: [认证]
+      summary: 登录
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string }
+                remember: { type: boolean, default: false, description: true → 7 天 token；false → 1 天 }
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          token: { type: string }
+                          user: { $ref: '#/components/schemas/User' }
+        '401': { description: 账号或密码错误 }
+        '403': { description: 账号已禁用或锁定 }
+
+  /api/users/me:
+    get:
+      tags: [认证]
+      summary: 刷新当前登录态
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 当前用户对象
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/User' }
+
+# ==================== 工单 ====================
+  /api/tickets:
+    get:
+      tags: [工单]
+      summary: 列表
+      parameters:
+        - name: keyword
+          in: query
+          schema: { type: string }
+          description: title 或 id 模糊匹配
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [fault_repair, account_permission, reimbursement]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, pending_approval, pending_assignment, pending_acceptance, pending_processing, processing, pending_confirmation, suspended, cancelled, closed]
+        - name: priority
+          in: query
+          schema: { type: string }
+        - name: dept
+          in: query
+          schema: { type: string }
+        - name: handlerId
+          in: query
+          schema: { type: integer }
+        - name: dateFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: dateTo
+          in: query
+          schema: { type: string, format: date }
+        - name: archived
+          in: query
+          schema: { type: boolean, default: false }
+        - name: escalated
+          in: query
+          schema: { type: boolean }
+          description: escalated_level ≥ 1
+        - name: slaExempt
+          in: query
+          schema: { type: boolean }
+        - name: suspendedDays
+          in: query
+          schema: { type: integer, minimum: 0 }
+          description: status=suspended 且挂起 ≥ N 天
+      responses:
+        '200':
+          description: 工单列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Ticket' }
+
+    post:
+      tags: [工单]
+      summary: 创建（草稿或直接提交）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, title]
+              properties:
+                type: { type: string, enum: [fault_repair, account_permission, reimbursement] }
+                title: { type: string, maxLength: 200 }
+                priority: { type: string, nullable: true }
+                faultCategory: { type: string, nullable: true, description: 仅 fault_repair }
+                description: { type: string, nullable: true }
+                attachments:
+                  type: array
+                  items: { type: string }
+                extra: { type: object, description: 按 form_field_configs 校验 }
+                submit:
+                  type: boolean
+                  description: false 或缺省存草稿；true 直接提交 → pending_approval
+                dept:
+                  type: string
+                  description: 超管可指定归属部门；缺省取申请人 dept，再兜底"技术部"
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Ticket' }
+
+  /api/tickets/export:
+    get:
+      tags: [工单]
+      summary: CSV 导出（仅超管）
+      description: Query 同 GET /api/tickets；返回带 UTF-8 BOM 的 CSV 文件流
+      parameters:
+        - name: keyword
+          in: query
+          schema: { type: string }
+        - name: type
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string }
+        - name: priority
+          in: query
+          schema: { type: string }
+        - name: dept
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: CSV 文件流
+          content:
+            text/csv:
+              schema: { type: string }
+        '403': { description: 无权限执行该操作 }
+
+  /api/tickets/todo:
+    get:
+      tags: [工单]
+      summary: 我的待办聚合
+      description: handleList / approveList 全员返回；financeList 仅超管返回
+      responses:
+        '200':
+          description: 待办聚合
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          handleList:
+                            type: array
+                            items: { $ref: '#/components/schemas/Ticket' }
+                            description: 我的处理中 + 本人申请待确认
+                          approveList:
+                            type: array
+                            items: { $ref: '#/components/schemas/Ticket' }
+                            description: 当前节点我是审批人
+                          financeList:
+                            type: array
+                            items: { $ref: '#/components/schemas/Ticket' }
+                            description: 仅超管；内置财务部队列
+
+  /api/tickets/abnormal:
+    get:
+      tags: [工单]
+      summary: 异常工单聚合
+      description: abnormalType 必填；其余筛选参数复用列表接口
+      parameters:
+        - name: abnormalType
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [sla_breach, escalated, sla_exempt, long_suspended]
+          description: |
+            sla_breach：overall SLA 已超时且非终态
+            escalated：escalated_level ≥ 1
+            sla_exempt：已豁免 SLA 考核
+            long_suspended：挂起 ≥ N 天（默认 7，可被 suspendedDays 覆盖）
+        - name: suspendedDays
+          in: query
+          schema: { type: integer, minimum: 0 }
+        - name: dept
+          in: query
+          schema: { type: string }
+        - name: priority
+          in: query
+          schema: { type: string }
+        - name: dateFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: dateTo
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: 异常工单列表；每条附带 abnormalTags 主标签
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Ticket' }
+
+  /api/tickets/{id}:
+    get:
+      tags: [工单]
+      summary: 详情（含当前轮审批节点摘要）
+      parameters:
+        - $ref: '#/components/parameters/ticketId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/TicketDetail' }
+        '404': { description: 工单不存在 }
+
+    put:
+      tags: [工单]
+      summary: 编辑草稿
+      description: 仅 status=draft 且申请人本人
+      parameters:
+        - $ref: '#/components/parameters/ticketId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                priority: { type: string, nullable: true }
+                faultCategory: { type: string, nullable: true }
+                description: { type: string, nullable: true }
+                attachments:
+                  type: array
+                  items: { type: string }
+                extra: { type: object }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Ticket' }
+        '409': { description: 当前状态不允许该操作 }
+
+  /api/tickets/{id}/actions:
+    post:
+      tags: [工单]
+      summary: 统一动作网关（20 动作）
+      description: |
+        校验顺序：登录 → 角色动作权限（403）→ 数据范围（404）→ 状态机白名单（409）→ payload（400）
+        version 乐观锁：payload.version 提供时必须匹配；business_event_id 幂等
+      parameters:
+        - $ref: '#/components/parameters/ticketId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [submit, approve, reject_approval, assign, reassign, accept, transfer, start, resolve, confirm, supplement, suspend, resume, cancel, reopen, escalate, change_priority, sla_exempt, mark_paid]
+                version: { type: integer, description: 乐观锁版本；不传则跳过校验 }
+                business_event_id: { type: string, description: 幂等键；重复请求直接返回当前 Ticket }
+                # ---- 各动作 payload ----
+                comment: { type: string, description: approve / reject_approval / reject / escalate 可选或必填 }
+                handlerId: { type: integer, description: assign / reassign / transfer 必填 }
+                result: { type: string, description: resolve 必填 }
+                reason: { type: string, description: suspend / reopen / sla_exempt 必填；cancel / escalate 可选 }
+                priority: { type: string, description: change_priority 必填 }
+                description: { type: string, description: supplement 可选 }
+                attachments:
+                  type: array
+                  items: { type: string }
+                  description: supplement 可选
+                extra: { type: object, description: supplement 可选 }
+                voucherNo: { type: string, description: mark_paid 必填 }
+                amount: { type: number, description: mark_paid 必填 }
+                remark: { type: string, description: mark_paid 可选 }
+      responses:
+        '200':
+          description: 动作成功；返回最新 Ticket
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Ticket' }
+        '400': { description: payload 校验失败 }
+        '403': { description: 无权限执行该操作 }
+        '404': { description: 工单不存在 }
+        '409': { description: 当前状态不允许该操作 / 版本冲突 }
+
+  /api/tickets/{id}/logs:
+    get:
+      tags: [工单]
+      summary: 时间线日志
+      parameters:
+        - $ref: '#/components/parameters/ticketId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Log' }
+
+  /api/tickets/{id}/sla-records:
+    get:
+      tags: [工单]
+      summary: 工单 SLA 明细
+      parameters:
+        - $ref: '#/components/parameters/ticketId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/SlaRecord' }
+
+  /api/tickets/{id}/sla-events:
+    get:
+      tags: [工单]
+      summary: SLA 事件时间线
+      parameters:
+        - $ref: '#/components/parameters/ticketId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/SlaEvent' }
+
+  /api/sla-records:
+    get:
+      tags: [工单]
+      summary: SLA 计时监控列表
+      description: 超管全部 / 部长本部门；员工 403
+      parameters:
+        - name: slaStatus
+          in: query
+          schema:
+            type: string
+            enum: [running, breached, paused]
+        - name: metricType
+          in: query
+          schema:
+            type: string
+            enum: [first_response, approval, processing, confirmation, payment, overall]
+        - name: ticketType
+          in: query
+          schema:
+            type: string
+            enum: [fault_repair, account_permission, reimbursement]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: integer }
+                            ticketId: { type: string }
+                            ticketTitle: { type: string }
+                            metricType: { type: string }
+                            slaStatus: { type: string }
+                            deadlineAt: { type: string, format: date-time }
+                            isBreached: { type: boolean }
+                            handlerName: { type: string, nullable: true }
+
+# ==================== 用户 ====================
+  /api/users:
+    get:
+      tags: [用户]
+      summary: 全量列表（仅超管）
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/User' }
+    post:
+      tags: [用户]
+      summary: 创建（仅超管；初始密码 123456）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, name, role]
+              properties:
+                username: { type: string }
+                name: { type: string }
+                role: { type: string, enum: [超级管理员, 技术部部长, 技术部普通员工] }
+                dept: { type: string, nullable: true }
+                email: { type: string, nullable: true }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/User' }
+        '409': { description: username 已存在 }
+
+  /api/users/{id}:
+    put:
+      tags: [用户]
+      summary: 改 name / role / dept / email（仅超管；username 不可改）
+      parameters:
+        - $ref: '#/components/parameters/userId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                role: { type: string }
+                dept: { type: string, nullable: true }
+                email: { type: string, nullable: true }
+      responses:
+        '200': { description: 成功 }
+
+    delete:
+      tags: [用户]
+      summary: 删除（仅超管；名下有工单 → 409；不能删自己）
+      parameters:
+        - $ref: '#/components/parameters/userId'
+      responses:
+        '200': { description: 成功 }
+        '409': { description: 名下有工单，请改用禁用 }
+
+  /api/users/{id}/status:
+    patch:
+      tags: [用户]
+      summary: 启/禁/锁定（仅超管；禁用/锁定即时失效）
+      parameters:
+        - $ref: '#/components/parameters/userId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [启用, 禁用, 锁定] }
+      responses:
+        '200': { description: 成功 }
+
+  /api/users/{id}/password:
+    patch:
+      tags: [用户]
+      summary: 重置密码（仅超管；重置为 123456）
+      parameters:
+        - $ref: '#/components/parameters/userId'
+      responses:
+        '200': { description: 成功 }
+
+# ==================== 系统配置 ====================
+  /api/dictionaries:
+    get:
+      tags: [系统配置]
+      summary: 字典列表（全员；返回 active 项）
+      parameters:
+        - name: dict_type
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: integer }
+                            dictType: { type: string }
+                            code: { type: string }
+                            label: { type: string }
+                            sort: { type: integer }
+                            active: { type: boolean }
+
+    post:
+      tags: [系统配置]
+      summary: 新增字典项（仅超管）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dictType, code, label]
+              properties:
+                dictType: { type: string }
+                code: { type: string }
+                label: { type: string }
+                sort: { type: integer }
+      responses:
+        '201': { description: 成功 }
+        '409': { description: 同类型下 code 已存在 }
+
+  /api/dictionaries/{id}:
+    put:
+      tags: [系统配置]
+      summary: 改 label / sort / active（仅超管；code 不可改）
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label: { type: string }
+                sort: { type: integer }
+                active: { type: boolean }
+      responses:
+        '200': { description: 成功 }
+
+  /api/approval-flows:
+    get:
+      tags: [系统配置]
+      summary: 审批节点定义（全员）
+      parameters:
+        - name: ticket_type
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: integer }
+                            ticketType: { type: string }
+                            seq: { type: integer }
+                            nodeName: { type: string }
+                            approverStrategy: { type: string }
+                            skipRule: { type: object, nullable: true }
+                            active: { type: boolean }
+
+  /api/approval-flows/{id}:
+    put:
+      tags: [系统配置]
+      summary: 改 node_name / skip_rule / active（仅超管；seq 与 approver_strategy 不可在线改）
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nodeName: { type: string }
+                skipRule: { type: object }
+                active: { type: boolean }
+      responses:
+        '200': { description: 成功 }
+
+  /api/sla-rules:
+    get:
+      tags: [系统配置]
+      summary: SLA 规则列表（含历史版本；全员）
+      parameters:
+        - name: ticket_type
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: integer }
+                            ticketType: { type: string }
+                            metricType: { type: string }
+                            priority: { type: string, nullable: true }
+                            nodeSeq: { type: integer, nullable: true }
+                            targetValue: { type: number }
+                            targetUnit: { type: string }
+                            calendarId: { type: integer, nullable: true }
+                            calendarName: { type: string, nullable: true }
+                            warningThresholds: { type: array, items: { type: number } }
+                            repeatRemindInterval: { type: string, nullable: true }
+                            version: { type: integer }
+                            active: { type: boolean }
+
+    post:
+      tags: [系统配置]
+      summary: 新增规则版本（仅超管；同组自动 version+1；历史版本只读）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ticketType, metricType, targetValue, targetUnit]
+              properties:
+                ticketType: { type: string }
+                metricType: { type: string }
+                priority: { type: string, nullable: true }
+                nodeSeq: { type: integer, nullable: true }
+                targetValue: { type: number }
+                targetUnit: { type: string }
+                calendarId: { type: integer, nullable: true }
+                warningThresholds: { type: array, items: { type: number } }
+                repeatRemindInterval: { type: string }
+      responses:
+        '201': { description: 成功 }
+
+  /api/sla-rules/{id}:
+    patch:
+      tags: [系统配置]
+      summary: 启停（仅超管；版本内容不可改）
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [active]
+              properties:
+                active: { type: boolean }
+      responses:
+        '200': { description: 成功 }
+
+  /api/work-calendars:
+    get:
+      tags: [系统配置]
+      summary: 工作日历列表（全员）
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: integer }
+                            name: { type: string }
+                            workDays: { type: array, items: { type: integer } }
+                            dayStart: { type: string }
+                            dayEnd: { type: string }
+                            breaks: { type: array, items: { type: array, items: { type: string } } }
+                            active: { type: boolean }
+                            specialDays:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  day: { type: string, format: date }
+                                  kind: { type: string, enum: [holiday, extra_workday] }
+                                  name: { type: string, nullable: true }
+
+  /api/work-calendars/{id}:
+    put:
+      tags: [系统配置]
+      summary: 整组替换（仅超管；calendar_special_days 先删后插）
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                workDays: { type: array, items: { type: integer } }
+                dayStart: { type: string }
+                dayEnd: { type: string }
+                breaks: { type: array, items: { type: array, items: { type: string } } }
+                active: { type: boolean }
+                specialDays:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      day: { type: string, format: date }
+                      kind: { type: string, enum: [holiday, extra_workday] }
+                      name: { type: string, nullable: true }
+      responses:
+        '200': { description: 成功 }
+
+  /api/form-configs:
+    get:
+      tags: [系统配置]
+      summary: 自定义表单字段（全员；渲染提交表单用）
+      parameters:
+        - name: ticket_type
+          in: query
+          schema: { type: string }
+      responses:
+        '200': { description: 成功 }
+
+    post:
+      tags: [系统配置]
+      summary: 新增自定义字段（仅超管）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ticketType, fieldKey, label, fieldType]
+              properties:
+                ticketType: { type: string }
+                fieldKey: { type: string }
+                label: { type: string }
+                fieldType: { type: string, enum: [text, textarea, number, select, date] }
+                required: { type: boolean }
+                options: { type: array, items: { type: string } }
+                sort: { type: integer }
+      responses:
+        '201': { description: 成功 }
+
+  /api/form-configs/{id}:
+    put:
+      tags: [系统配置]
+      summary: 编辑自定义字段（仅超管；不可物理删，active=false 下线）
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label: { type: string }
+                fieldType: { type: string }
+                required: { type: boolean }
+                options: { type: array, items: { type: string } }
+                sort: { type: integer }
+                active: { type: boolean }
+      responses:
+        '200': { description: 成功 }
+
+  /api/role-permissions:
+    get:
+      tags: [系统配置]
+      summary: 角色-权限码矩阵（全员；前端按钮显隐数据源，建议缓存）
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            role: { type: string }
+                            permCode: { type: string }
+    put:
+      tags: [系统配置]
+      summary: 整组替换（仅超管）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permissions]
+              properties:
+                permissions:
+                  type: array
+                  items:
+                    type: object
+                    required: [role, permCode]
+                    properties:
+                      role: { type: string }
+                      permCode: { type: string }
+      responses:
+        '200': { description: 成功 }
+
+  /api/notification-templates:
+    get:
+      tags: [系统配置]
+      summary: 通知模板列表（全员）
+      responses:
+        '200': { description: 成功 }
+
+  /api/notification-templates/{id}:
+    put:
+      tags: [系统配置]
+      summary: 改 title / content（仅超管；模板支持 {变量名} 占位符）
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                content: { type: string }
+      responses:
+        '200': { description: 成功 }
+
+  /api/system-params:
+    get:
+      tags: [系统配置]
+      summary: 系统参数列表（全员）
+      responses:
+        '200': { description: 成功 }
+
+  /api/system-params/{key}:
+    put:
+      tags: [系统配置]
+      summary: 改 value（仅超管；JSON 字符串化存库）
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+          description: reopen_window_days / upload_max_mb / login_max_retry / sla_scan_interval_sec 等
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value: { type: string }
+      responses:
+        '200': { description: 成功 }
+
+# ==================== 日志 ====================
+  /api/login-logs:
+    get:
+      tags: [日志]
+      summary: 登录留痕（仅超管）
+      parameters:
+        - name: username
+          in: query
+          schema: { type: string }
+        - name: success
+          in: query
+          schema: { type: boolean }
+        - name: dateFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: dateTo
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200': { description: 成功 }
+
+  /api/audit-logs:
+    get:
+      tags: [日志]
+      summary: 配置与权限变更审计（仅超管）
+      parameters:
+        - name: actorId
+          in: query
+          schema: { type: integer }
+        - name: targetType
+          in: query
+          schema: { type: string }
+        - name: targetId
+          in: query
+          schema: { type: integer }
+        - name: dateFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: dateTo
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200': { description: 成功 }
+
+# ==================== 通知 ====================
+  /api/notifications:
+    get:
+      tags: [通知]
+      summary: 我的站内通知（未读优先 + created_at 倒序）
+      responses:
+        '200': { description: 成功 }
+
+  /api/notifications/read-all:
+    patch:
+      tags: [通知]
+      summary: 全部已读
+      responses:
+        '200': { description: 成功 }
+
+  /api/notifications/{id}/read:
+    patch:
+      tags: [通知]
+      summary: 标记已读（仅本人通知）
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200': { description: 成功 }
+        '404': { description: 通知不存在或无权 }
+
+# ==================== 统计 ====================
+  /api/stats/overview:
+    get:
+      tags: [统计]
+      summary: 数据聚合规模
+      parameters:
+        - $ref: '#/components/parameters/period'
+        - $ref: '#/components/parameters/date'
+        - name: dept
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          total: { type: integer }
+                          created: { type: integer }
+                          closed: { type: integer }
+                          unclosed: { type: integer }
+                          cancelled: { type: integer }
+                          rejected: { type: integer, description: 周期内 reject_approval 动作数 }
+
+  /api/stats/workload:
+    get:
+      tags: [统计]
+      summary: 人员工作量（超管全员 / 部长本部门 / 员工仅本人）
+      parameters:
+        - $ref: '#/components/parameters/period'
+        - $ref: '#/components/parameters/date'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          list:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                userId: { type: integer }
+                                name: { type: string }
+                                accepted: { type: integer }
+                                processed: { type: integer }
+                                closed: { type: integer }
+                                rejected: { type: integer }
+                                cancelled: { type: integer }
+                          avgPerPerson: { type: number }
+
+  /api/stats/sla:
+    get:
+      tags: [统计]
+      summary: SLA 超时率总览
+      parameters:
+        - $ref: '#/components/parameters/period'
+        - $ref: '#/components/parameters/date'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          overallRate: { type: number, description: "%" }
+                          responseRate: { type: number }
+                          approvalRate: { type: number }
+                          processingRate: { type: number }
+                          breachedCount: { type: integer }
+                          avgBreachedDuration: { type: number, description: 毫秒 }
+
+  /api/stats/sla/details:
+    get:
+      tags: [统计]
+      summary: 超时工单明细
+      parameters:
+        - $ref: '#/components/parameters/period'
+        - $ref: '#/components/parameters/date'
+        - name: keyword
+          in: query
+          schema: { type: string }
+        - name: type
+          in: query
+          schema: { type: string }
+        - name: dept
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            ticketId: { type: string }
+                            title: { type: string }
+                            metricType: { type: string }
+                            breachedDuration: { type: integer, description: 毫秒 }
+                            handlerName: { type: string, nullable: true }
+                            dept: { type: string }
+
+  /api/stats/trend:
+    get:
+      tags: [统计]
+      summary: 工单趋势（含同期对比）
+      description: |
+        趋势分桶粒度：day→hour，week/month→day，quarter/year→month；
+        previous = 上一等长周期同期序列
+      parameters:
+        - $ref: '#/components/parameters/period'
+        - $ref: '#/components/parameters/date'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          current:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                bucket: { type: string }
+                                created: { type: integer }
+                                closed: { type: integer }
+                                breached: { type: integer }
+                          previous:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                bucket: { type: string }
+                                created: { type: integer }
+                                closed: { type: integer }
+                                breached: { type: integer }
+
+  /api/stats/status-distribution:
+    get:
+      tags: [统计]
+      summary: 状态分布（10 态固定输出 + overdueOpen）
+      parameters:
+        - $ref: '#/components/parameters/period'
+        - $ref: '#/components/parameters/date'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          list:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                status: { type: string }
+                                count: { type: integer }
+                                ratio: { type: number, format: double }
+                          overdueOpen: { type: integer, description: overall is_breached 且非终态 }
+
+  /api/stats/export:
+    get:
+      tags: [统计]
+      summary: 报表导出 CSV（仅超管）
+      parameters:
+        - name: module
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [overview, workload, sla, trend, status]
+        - $ref: '#/components/parameters/period'
+        - $ref: '#/components/parameters/date'
+      responses:
+        '200':
+          description: CSV 文件流（带 UTF-8 BOM）
+          content:
+            text/csv:
+              schema: { type: string }
+        '403': { description: 无权限执行该操作 }
+
+# ==================== 附件与健康检查 ====================
+  /api/upload:
+    post:
+      tags: [附件与健康检查]
+      summary: 附件上传
+      description: |
+        multipart 字段 file；上限读 system_params.upload_max_mb；
+        类型白名单：.pdf/.doc/.docx/.xls/.xlsx/.ppt/.pptx/.png/.jpg/.jpeg/.gif/.txt/.zip
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          name: { type: string }
+                          url: { type: string }
+        '400': { description: 文件类型不允许 }
+        '413': { description: 附件大小超出限制 }
+
+  /api/health:
+    get:
+      tags: [附件与健康检查]
+      summary: 健康检查（无需登录）
+      security: []
+      responses:
+        '200':
+          description: 后端正常
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  db: { type: string, example: up }
+        '503':
+          description: 数据库不可用
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: down }
+                  db: { type: string, example: down }

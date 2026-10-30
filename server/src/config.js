@@ -23,5 +23,6 @@ export const config = {
     .map((s) => s.trim())
     .filter(Boolean),
   uploadDir: process.env.UPLOAD_DIR || 'uploads',
+  dbSsl: process.env.DB_SSL ?? null, // 'on' / 'off' / null(自动：URL 含 sslmode=require 即开启)
   jwtPayloadFields: ['uid', 'username', 'name', 'role', 'dept'],
 }

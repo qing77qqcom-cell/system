@@ -18,9 +18,9 @@ let chart = null
 const handleResize = () => chart?.resize()
 
 onMounted(() => {
-  chart = echarts.init(chartEl.value)
-  chart.setOption(props.option)
-  window.addEventListener('resize', handleResize)
+  chart = echarts.init(chartEl.value)// 初始化图表实例
+  chart.setOption(props.option)// 渲染图表
+  window.addEventListener('resize', handleResize)//浏览器内置事件名
 })
 
 watch(

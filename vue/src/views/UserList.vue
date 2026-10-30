@@ -1,21 +1,24 @@
 <script setup>
+// 用户列表页：超管可查看所有用户，部长本部门只读
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Delete, Edit, Key, Plus, Refresh, Search, SwitchButton, View } from '@element-plus/icons-vue'
 import { DEPT_OPTIONS, ROLE_OPTIONS, ROLE_TAG_TYPE, USER_STATUS_TAG_TYPE } from '@/constants'
 import { listUsers, createUser, updateUser, toggleUserStatus, resetUserPassword, deleteUser } from '@/api/user'
-import { currentUserInfo } from '@/utils/helpers'
+import { useRoleCan } from '@/composables/useRoleCan.js'
+import { useLoading } from '@/composables/useLoading.js'
 
 
 const route = useRoute()
 const router = useRouter()
+const roleCan = useRoleCan()
 
 // 用户写操作（增删改/启禁/重置密码）后端仅超管可调，前端隐藏入口保持一致；部长本部门只读
-const isAdmin = computed(() => currentUserInfo()?.role === '超级管理员')
+const isAdmin = computed(() => roleCan.canManageUsers.value)
 
 // ============ 列表数据 ============
 const users = ref([])
-const loading = ref(false)
+const { loading, run } = useLoading()
 
 // ============ 查询条件 ============
 const queryForm = reactive({
@@ -36,8 +39,7 @@ const applied = reactive({
 const pagedUsers = ref([])
 
 async function loadList() {
-  loading.value = true
-  try {
+  await run(async () => {
     const params = {}
     if (applied.keyword) params.keyword = applied.keyword
     if (applied.role) params.role = applied.role
@@ -46,9 +48,7 @@ async function loadList() {
     // 分页在前端（规格 §8 约定：分页排序由前端做）
     const start = (applied.page - 1) * applied.pageSize
     pagedUsers.value = users.value.slice(start, start + applied.pageSize)
-  } finally {
-    loading.value = false
-  }
+  })
 }
 
 const handleSearch = () => {

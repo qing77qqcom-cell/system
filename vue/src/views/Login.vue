@@ -3,12 +3,15 @@ import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { User, Lock, View, Hide, Tickets } from '@element-plus/icons-vue'
 import { login } from '@/api/user'
+import { useAuthStore } from '@/stores/store.js'
+import { useLoading } from '@/composables/useLoading.js'
 
 const router = useRouter()
 const route = useRoute()
+const auth = useAuthStore()
 const loginFormRef = ref()
-const loading = ref(false)
 const passwordVisible = ref(false)
+const { loading, run } = useLoading()
 
 const loginForm = reactive({
   username: '',
@@ -31,16 +34,14 @@ const handleLogin = async () => {
   } catch {
     return // 校验未通过，rules 已就地提示
   }
-  loading.value = true
   try {
-    const { token, user } = await login(loginForm)
-    localStorage.setItem('oa_token', JSON.stringify({ token, user }))
+    const { token, user } = await run(() => login(loginForm))
+    auth.setAuth({ token, user })
+    await auth.loadPermissions()   // 拉取当前角色的权限码（readonlyFields 链路依赖它）
     ElMessage.success(`登录成功，欢迎回来，${user.name}！`)
     router.push(route.query.redirect || '/workbench')
   } catch {
     // 错误提示由响应拦截器统一弹出（如「账号或密码错误」），此处只需复位状态
-  } finally {
-    loading.value = false
   }
 }
 </script>

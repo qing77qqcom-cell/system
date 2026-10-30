@@ -8,7 +8,7 @@ const sql = readFileSync(sqlPath, 'utf-8')
 
 try {
   await pool.query(sql)
-  console.log('建表完成：users / orders / order_logs 及索引已就绪')
+  console.log('建表完成：users / tickets / sla_records 等 19 张表 + 种子数据已就绪')
 } catch (err) {
   console.error('建表失败：', err.message)
   process.exitCode = 1

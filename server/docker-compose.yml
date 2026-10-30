@@ -1,0 +1,18 @@
+# OA 工单系统本地 PostgreSQL
+# 启动：docker compose up -d
+# 端口：5432，账号 postgres / postgres，数据库 oa_ticket
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: oa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: oa_ticket
+    ports:
+      - "5432:5432"
+    volumes:
+      - oa-pg-data:/var/lib/postgresql/data
+volumes:
+  oa-pg-data:

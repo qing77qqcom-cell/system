@@ -1,4 +1,5 @@
 <script setup>
+// 创建工单表单页,所有人可访问
 import { computed, onMounted, reactive, ref } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { UploadFilled } from '@element-plus/icons-vue'
@@ -6,10 +7,15 @@ import { createOrder, updateOrder, getOrder, assignOrder } from '@/api/order'
 import { getMeta } from '@/api/meta'
 import { uploadFile } from '@/api/upload'
 import { listUsers } from '@/api/user'
-import { currentUser, currentUserInfo, formatDate } from '@/utils/helpers'
+import { formatDate } from '@/utils/helpers'
+import { useAuthStore } from '@/stores/store.js'
+import { useRoleCan } from '@/composables/useRoleCan.js'
+import DynamicForm from '@/components/dynamicschema/DynamicForm.vue'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
+const roleCan = useRoleCan()
 
 const isEdit = computed(() => !!route.params.id)
 const formRef = ref()
@@ -44,40 +50,41 @@ const form = reactive({
   dept: '',
   type: '',
   priority: '中',
-  submitter: currentUser(),
+  submitter: auth.userName,
   deadline: defaultDeadline(),
   description: '',
   extra: {},
 })
 
-// 动态校验规则：随问题类型变化
-const rules = computed(() => {
-  const r = {
-    title: [
-      { required: true, message: '请输入工单标题', trigger: 'blur' },
-      { max: 30, message: '标题不能超过 30 个字', trigger: 'blur' },
-    ],
-    dept: [{ required: true, message: '请选择所属部门', trigger: 'change' }],
-    type: [{ required: true, message: '请选择问题类型', trigger: 'change' }],
-    priority: [{ required: true, message: '请选择优先级', trigger: 'change' }],
-    description: [
-      { required: true, message: '请填写问题描述', trigger: 'blur' },
-      { min: 5, message: '问题描述不少于 5 个字', trigger: 'blur' },
-    ],
-  }
-  // 注意：嵌套 model 字段的规则 key 必须与 prop 的完整路径一致（扁平写法）
-  if (form.type === '账号权限') {
-    r['extra.account'] = [
-      { required: true, message: '请输入账号', trigger: 'blur' },
-      { pattern: /^[a-zA-Z0-9_.@-]+$/, message: '账号只能包含字母、数字及 _ . @ -', trigger: 'blur' },
-    ]
-    r['extra.permType'] = [{ required: true, message: '请选择权限类型', trigger: 'change' }]
-  }
-  if (form.type === '设备故障') {
-    r['extra.deviceNo'] = [{ required: true, message: '请输入设备编号', trigger: 'blur' }]
-    r['extra.deviceType'] = [{ required: true, message: '请选择设备类型', trigger: 'change' }]
-  }
-  return r
+// 基础规则（固定字段，不随工单类型变）
+const baseRules = computed(() => ({
+  title: [
+    { required: true, message: '请输入工单标题', trigger: 'blur' },
+    { max: 30, message: '标题不能超过 30 个字', trigger: 'blur' },
+  ],
+  dept: [{ required: true, message: '请选择所属部门', trigger: 'change' }],
+  type: [{ required: true, message: '请选择问题类型', trigger: 'change' }],
+  priority: [{ required: true, message: '请选择优先级', trigger: 'change' }],
+  description: [
+    { required: true, message: '请填写问题描述', trigger: 'blur' },
+    { min: 5, message: '问题描述不少于 5 个字', trigger: 'blur' },
+  ],
+}))
+
+// DynamicForm 动态生成的规则（从后端 schema 自动生成）
+const dynRules = ref({})
+
+// 最终合并规则：基础 + 动态
+const mergedRules = computed(() => ({ ...baseRules.value, ...dynRules.value }))
+
+// 从 auth.permissions 解析出字段级只读的 fieldKey 数组
+// store.js permissions Set 里存的是 'field:readonly:xxx' 格式
+// 兜底：如果 auth.permissions 还没实现，用空数组（全部可编辑）
+const readonlyExtraFields = computed(() => {
+  const perms = auth.permissions || new Set()
+  return [...perms]
+    .filter(p => typeof p === 'string' && p.startsWith('field:readonly:'))
+    .map(p => p.replace('field:readonly:', ''))
 })
 
 // 切换问题类型时清空动态字段，避免脏数据提交
@@ -197,8 +204,7 @@ const handleCancel = () => {
 
 // ============ 分配处理人（仅编辑模式 + 部长/超管可见；后端仍做权限兜底） ============
 const canAssign = computed(() => {
-  const role = currentUserInfo()?.role
-  return isEdit.value && ['部长', '超级管理员'].includes(role)
+  return isEdit.value && roleCan.canAssign.value
 })
 
 const assignDialogVisible = ref(false)
@@ -278,7 +284,7 @@ onMounted(async () => {
       <el-form
         ref="formRef"
         :model="form"
-        :rules="rules"
+        :rules="mergedRules"
         label-width="92px"
         class="form-body"
         :validate-on-rule-change="false"
@@ -310,7 +316,7 @@ onMounted(async () => {
           <el-col :span="12">
             <el-form-item label="问题类型" prop="type">
               <el-select v-model="form.type" placeholder="请选择问题类型" style="width: 100%" @change="handleTypeChange">
-                <el-option v-for="t in typeOptions" :key="t" :label="t" :value="t" />
+                <el-option v-for="t in typeOptions" :key="t.code" :label="t.label" :value="t.code" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -351,69 +357,13 @@ onMounted(async () => {
           </el-col>
         </el-row>
 
-        <!-- 动态字段：账号权限 -->
-        <template v-if="form.type === '账号权限'">
-          <el-divider content-position="left">账号权限信息</el-divider>
-          <el-row :gutter="20">
-            <el-col :span="12">
-              <el-form-item label="账号" prop="extra.account">
-                <el-input v-model="form.extra.account" placeholder="请输入 OA 账号" clearable />
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item label="权限类型" prop="extra.permType">
-                <el-select v-model="form.extra.permType" placeholder="请选择权限类型" style="width: 100%">
-                  <el-option v-for="p in permOptions" :key="p" :label="p" :value="p" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col :span="24">
-              <el-form-item label="申请原因">
-                <el-input
-                  v-model="form.extra.applyReason"
-                  type="textarea"
-                  :rows="2"
-                  maxlength="100"
-                  show-word-limit
-                  placeholder="请说明申请该权限的原因"
-                />
-              </el-form-item>
-            </el-col>
-          </el-row>
-        </template>
-
-        <!-- 动态字段：设备故障 -->
-        <template v-else-if="form.type === '设备故障'">
-          <el-divider content-position="left">设备故障信息</el-divider>
-          <el-row :gutter="20">
-            <el-col :span="12">
-              <el-form-item label="设备编号" prop="extra.deviceNo">
-                <el-input v-model="form.extra.deviceNo" placeholder="例如：PC-JS-022" clearable />
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item label="设备类型" prop="extra.deviceType">
-                <el-select v-model="form.extra.deviceType" placeholder="请选择设备类型" style="width: 100%">
-                  <el-option v-for="d in deviceOptions" :key="d" :label="d" :value="d" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col :span="24">
-              <el-form-item label="故障描述">
-                <el-input
-                  v-model="form.extra.faultDesc"
-                  type="textarea"
-                  :rows="2"
-                  maxlength="100"
-                  show-word-limit
-                  placeholder="请描述设备故障的具体表现"
-                />
-              </el-form-item>
-            </el-col>
-          </el-row>
-        </template>
-
-        <!-- 附件 -->
+        <!-- 动态自定义字段：由后端 schema 驱动 -->
+        <DynamicForm
+          :ticket-type="form.type"
+          :model="form.extra"
+          :readonly-fields="readonlyExtraFields"
+          @rules-change="dynRules = $event"
+        />
         <el-form-item label="附件">
           <el-upload
             :file-list="fileList"

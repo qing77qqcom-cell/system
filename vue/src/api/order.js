@@ -1,46 +1,38 @@
 import service from '@/utils/request'
 
-// 工单列表（筛选：keyword / dept / type / status / priority / dateFrom / dateTo / submitterId / handlerId）
+// 工单 CRUD + 动作（后端路由前缀 /api/tickets）
 export function listOrders(params = {}) {
-  return service.get('/orders', { params })
+  return service.get('/tickets', { params })
 }
 
-// 工单详情（含处理日志）
 export function getOrder(id) {
-  return service.get(`/orders/${id}`)
+  return service.get(`/tickets/${id}`)
 }
 
-// 创建工单
 export function createOrder(data) {
-  return service.post('/orders', data)
+  return service.post('/tickets', data)
 }
 
-// 编辑工单
 export function updateOrder(id, data) {
-  return service.put(`/orders/${id}`, data)
+  return service.put(`/tickets/${id}`, data)
 }
 
-// 状态流转：action = accept / reject / complete / close（reject 需 reason）
 export function updateOrderStatus(id, action, reason) {
-  return service.patch(`/orders/${id}/status`, { action, reason })
+  return service.post(`/tickets/${id}/actions`, { action, reason })
 }
 
-// 分配工单（仅部长/超管）
 export function assignOrder(id, handlerId) {
-  return service.patch(`/orders/${id}/assign`, { handlerId })
+  return service.post(`/tickets/${id}/actions`, { action: 'assign', handlerId })
 }
 
-// 催办（仅提交人）
 export function urgeOrder(id) {
-  return service.post(`/orders/${id}/urge`)
+  return service.post(`/tickets/${id}/actions`, { action: 'urge' })
 }
 
-// 批量关闭（仅部长/超管）
 export function batchCloseOrders(ids) {
-  return service.post('/orders/batch-close', { ids })
+  return service.post(`/tickets/actions/batch-close`, { ids })
 }
 
-// 删除工单（仅超管，软删除）
 export function deleteOrder(id) {
-  return service.delete(`/orders/${id}`)
+  return service.delete(`/tickets/${id}`)
 }

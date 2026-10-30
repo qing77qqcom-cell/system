@@ -1,4 +1,5 @@
 <script setup>
+// 工单详情页：超管可查看所有工单，部长\员工只读
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -13,29 +14,31 @@ import {
 import { getOrder, updateOrderStatus, urgeOrder, assignOrder } from '@/api/order'
 import { listUsers } from '@/api/user'
 import { PRIORITY_TAG_TYPE, STATUS_TAG_TYPE } from '@/constants'
-import { isOverdue, currentUserInfo } from '@/utils/helpers'
+import { isOverdue } from '@/utils/helpers'
+import { useLoading } from '@/composables/useLoading.js'
+import { useRoleCan } from '@/composables/useRoleCan.js'
 
 const route = useRoute()
 const router = useRouter()
+const { loading, run } = useLoading()
+const roleCan = useRoleCan()
 
 const acting = ref(false)
-const loading = ref(false)
 const notFound = ref(false)
 
 // 工单详情（含处理日志 logs），不存在/无权查看 → notFound
 const order = ref(null)
 
 async function loadOrder() {
-  loading.value = true
   notFound.value = false
-  try {
-    order.value = await getOrder(route.params.id)
-  } catch {
-    order.value = null
-    notFound.value = true
-  } finally {
-    loading.value = false
-  }
+  await run(async () => {
+    try {
+      order.value = await getOrder(route.params.id)
+    } catch {
+      order.value = null
+      notFound.value = true
+    }
+  })
 }
 
 // 动态字段中文映射
@@ -67,9 +70,8 @@ const active = computed(() => ['待处理', '处理中'].includes(order.value?.s
 
 // ============ 分配处理人（部长/超管可见，后端仍做权限与状态兜底） ============
 const canAssign = computed(() => {
-  const role = currentUserInfo()?.role
   return (
-    ['部长', '超级管理员'].includes(role) &&
+    roleCan.canAssign.value &&
     ['待处理', '已退回'].includes(order.value?.status)
   )
 })

@@ -1,0 +1,320 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oa-system.dev/schema/form-schema-spec.json",
+  "title": "OA 工单系统 · 动态表单 Schema 规范",
+  "description": "前端驱动的表单引擎契约 — 后端 form_field_configs 表的每个字段，在前端 DynamicForm 组件中的语义定义。version 1.0 为当前后端已实现字段；version 2.0 为规划扩展（需后端配合加列）。",
+  "version": "1.0",
+  "backendTable": "form_field_configs",
+  "backendAPI": {
+    "list": "GET /api/form-configs?ticket_type={type}",
+    "create": "POST /api/form-configs  (admin only)",
+    "update": "PUT /api/form-configs/:id  (admin only)"
+  },
+  "responseEnvelope": {
+    "type": "object",
+    "properties": {
+      "code": { "type": "integer", "const": 0 },
+      "message": { "type": "string", "const": "ok" },
+      "data": {
+        "type": "array",
+        "items": { "$ref": "#/definitions/FieldConfig" }
+      }
+    },
+    "required": ["code", "message", "data"]
+  },
+  "definitions": {
+    "FieldConfig": {
+      "type": "object",
+      "description": "后端返回的单条字段配置，前端 DynamicField 组件消费的 schema",
+      "backendColumns": {
+        "id": "serial PK",
+        "ticket_type": "ticket_type enum NOT NULL",
+        "field_key": "varchar(50) NOT NULL",
+        "label": "varchar(50) NOT NULL",
+        "field_type": "varchar(20) CHECK IN (text,textarea,number,select,date)",
+        "required": "boolean DEFAULT false",
+        "options": "jsonb, nullable",
+        "sort": "smallint DEFAULT 0",
+        "active": "boolean DEFAULT true"
+      },
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "自增主键，前端不作为业务字段使用，仅作 v-for :key",
+          "example": 3
+        },
+        "ticketType": {
+          "type": "string",
+          "description": "工单类型枚举值（后端 ticket_type 字段，camelCase 返回）",
+          "enum": ["fault_repair", "account_permission", "reimbursement"],
+          "example": "account_permission"
+        },
+        "fieldKey": {
+          "type": "string",
+          "description": "字段唯一标识，绑定到前端 form.extra[fieldKey]；正则 ^[a-zA-Z][a-zA-Z0-9_]{0,49}$",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_]{0,49}$",
+          "example": "system"
+        },
+        "label": {
+          "type": "string",
+          "description": "el-form-item 的 label 显示文本",
+          "example": "目标系统"
+        },
+        "fieldType": {
+          "type": "string",
+          "enum": ["text", "textarea", "number", "select", "date"],
+          "description": "渲染组件类型映射：\ntext → el-input\ntextarea → el-input type=textarea\nnumber → el-input-number\nselect → el-select\ndate → el-date-picker type=date",
+          "example": "select"
+        },
+        "required": {
+          "type": "boolean",
+          "description": "是否必填，前端自动生成 el-form required 标记 + rules",
+          "example": true
+        },
+        "options": {
+          "description": "select 专用，支持两种格式（前端 DynamicField.normalizedOptions 自动归一化）",
+          "oneOf": [
+            {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "纯字符串数组（后端当前实现）",
+              "example": ["OA", "邮箱", "VPN", "ERP"]
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": { "type": "string" },
+                  "value": { "type": ["string", "number", "boolean"] }
+                },
+                "required": ["label", "value"]
+              },
+              "description": "对象数组（兼容老格式）",
+              "example": [
+                { "label": "办公网", "value": "oa" },
+                { "label": "企业邮箱", "value": "email" }
+              ]
+            },
+            {
+              "type": "null",
+              "description": "非 select 类型时为 null"
+            }
+          ]
+        },
+        "sort": {
+          "type": "integer",
+          "description": "同 ticketType 下的渲染顺序，升序",
+          "minimum": 0,
+          "example": 1
+        },
+        "active": {
+          "type": "boolean",
+          "description": "是否启用，false 时前端应过滤掉该字段（后端 GET 未自动过滤）",
+          "example": true
+        }
+      },
+      "required": ["id", "ticketType", "fieldKey", "label", "fieldType", "required", "sort", "active"]
+    }
+  },
+
+  "frontendRendering": {
+    "DynamicField": {
+      "description": "前端组件，根据 fieldType 渲染对应 Element Plus 组件",
+      "mapping": {
+        "text": { "component": "el-input", "props": { "clearable": true, "placeholder": "请输入{label}" } },
+        "textarea": { "component": "el-input", "props": { "type": "textarea", "rows": 3, "placeholder": "请输入{label}" } },
+        "number": { "component": "el-input-number", "props": { "controls-position": "right" } },
+        "select": { "component": "el-select", "props": { "style": "width:100%" }, "children": "el-option" },
+        "date": { "component": "el-date-picker", "props": { "type": "date", "style": "width:100%" } }
+      },
+      "optionsNormalization": {
+        "when": "fieldType === 'select'",
+        "rule": "if (typeof opt === 'string') → { label: opt, value: opt }",
+        "reason": "后端当前存纯字符串数组，兼容老格式对象数组"
+      }
+    },
+    "DynamicForm": {
+      "watchBehavior": {
+        "trigger": "props.ticketType 变化",
+        "action": "重新调用 listFormConfigs(ticketType)",
+        "sideEffect": "旧 fields 清空 → 新 fields 渲染"
+      },
+      "rulesGeneration": {
+        "output": "emit('rules-change', dynamicRules)",
+        "mergeStrategy": "WorkOrderForm 侧 mergedRules = { ...baseRules, ...dynRules }",
+        "propPath": "extra.{fieldKey}",
+        "autoRules": [
+          { "when": "required === true", "rule": "{ required: true, message: '请填写{label}', trigger: 'blur' }" },
+          { "when": "fieldType === 'number'", "rule": "{ type: 'number', message: '{label}必须是数字', trigger: 'blur' }" }
+        ]
+      },
+      "readonlyPropagation": {
+        "source": "auth.permissions 中以 'field:readonly:' 开头的权限码",
+        "extract": "permCode.replace('field:readonly:', '') → fieldKey",
+        "filter": "readonlyFields.includes(field.fieldKey)",
+        "effect": "DynamicField :readonly → el-input :disabled"
+      }
+    }
+  },
+
+  "enums": {
+    "ticket_type": {
+      "source": "init.sql CREATE TYPE ticket_type AS ENUM",
+      "values": ["fault_repair", "account_permission", "reimbursement"],
+      "labels": { "fault_repair": "故障报修", "account_permission": "账号与权限服务", "reimbursement": "报销审批" },
+      "usage": "DynamicForm.ticketType prop / 工单类型下拉字典"
+    },
+    "ticket_status": {
+      "source": "init.sql CREATE TYPE ticket_status AS ENUM (10 种)",
+      "values": ["draft", "pending_approval", "pending_assignment", "pending_acceptance", "pending_processing", "processing", "pending_confirmation", "pending_completion", "closed", "cancelled"],
+      "labels": { "draft": "草稿", "pending_approval": "待审批", "pending_assignment": "待分配", "pending_acceptance": "待接单", "pending_processing": "待处理", "processing": "处理中", "pending_confirmation": "待确认", "pending_completion": "待完成", "closed": "已关闭", "cancelled": "已取消" },
+      "usage": "工单列表 StatusFilterMenu / 工单详情状态展示"
+    },
+    "ticket_action": {
+      "source": "init.sql CREATE TYPE ticket_action AS ENUM (20 种) — 后端 tickets/:id/actions 的合法 action 值",
+      "values": ["submit", "approve", "reject_approval", "assign", "reassign", "accept", "transfer", "start", "resolve", "confirm", "supplement", "suspend", "resume", "cancel", "close", "reopen", "escalate", "change_priority", "sla_exempt", "mark_paid"]
+    },
+    "priority": {
+      "source": "sys_dictionaries dict_type=priority",
+      "values": ["low", "medium", "high", "urgent"],
+      "labels": { "low": "低", "medium": "中", "high": "高", "urgent": "紧急" }
+    }
+  },
+
+  "permissionSystem": {
+    "backendTable": "role_permissions",
+    "totalRows": 46,
+    "prefixConvention": {
+      "menu": {
+        "format": "menu:{resource}",
+        "allValues": ["menu:workbench", "menu:tickets", "menu:stats", "menu:system-config", "menu:user-manage", "menu:logs"],
+        "frontendUsage": "Layout.vue visibleNavs 过滤 / router.addRoute 动态路由"
+      },
+      "action": {
+        "format": "action:{action}",
+        "allValues": [
+          "action:submit", "action:supplement", "action:cancel", "action:confirm", "action:reopen",
+          "action:approve", "action:reject_approval",
+          "action:assign", "action:reassign", "action:transfer",
+          "action:suspend", "action:resume",
+          "action:escalate", "action:change_priority", "action:sla_exempt",
+          "action:accept", "action:start", "action:resolve",
+          "action:mark_paid"
+        ],
+        "note": "与 enums.ticket_action 一一对应，每条 role_permissions 额外加了 stats:export 非 action: 前缀",
+        "frontendUsage": "WorkOrderDetail.vue 按钮级显隐"
+      },
+      "stats": {
+        "format": "stats:{action}",
+        "allValues": ["stats:export"],
+        "frontendUsage": "datalist.vue 报表导出按钮（admin only）"
+      },
+      "field_readonly": {
+        "format": "field:readonly:{fieldKey}",
+        "allValues": ["field:readonly:deviceNo", "field:readonly:permType", "field:readonly:amount", "field:readonly:subject"],
+        "frontendUsage": "DynamicForm → readonlyFields prop → DynamicField :readonly",
+        "note": "init.sql 第 392-396 行已预置 4 条；可按业务追加更多字段"
+      }
+    },
+    "roleMatrix": {
+      "超级管理员": {
+        "menu":    ["menu:workbench", "menu:tickets", "menu:stats", "menu:system-config", "menu:user-manage", "menu:logs"],
+        "action":  ["action:submit", "action:supplement", "action:cancel", "action:confirm", "action:reopen",
+                    "action:approve", "action:reject_approval",
+                    "action:assign", "action:reassign", "action:transfer",
+                    "action:suspend", "action:resume",
+                    "action:escalate", "action:change_priority", "action:sla_exempt",
+                    "action:accept", "action:start", "action:resolve",
+                    "action:mark_paid"],
+        "stats":   ["stats:export"],
+        "field_readonly": [],
+        "rowCount": 31
+      },
+      "技术部部长": {
+        "menu":    ["menu:workbench", "menu:tickets", "menu:stats"],
+        "action":  ["action:submit", "action:supplement", "action:cancel", "action:confirm", "action:reopen",
+                    "action:approve", "action:reject_approval",
+                    "action:assign", "action:reassign", "action:transfer",
+                    "action:suspend", "action:resume",
+                    "action:escalate", "action:change_priority", "action:sla_exempt"],
+        "stats":   [],
+        "field_readonly": ["field:readonly:amount", "field:readonly:subject"],
+        "rowCount": 18
+      },
+      "技术部普通员工": {
+        "menu":    ["menu:workbench", "menu:tickets", "menu:stats"],
+        "action":  ["action:submit", "action:supplement", "action:cancel", "action:confirm", "action:reopen",
+                    "action:accept", "action:start", "action:resolve"],
+        "stats":   [],
+        "field_readonly": ["field:readonly:deviceNo", "field:readonly:permType"],
+        "rowCount": 14
+      }
+    }
+  },
+
+  "extensibilityPlan": {
+    "version_2_proposal": {
+      "description": "以下字段当前后端未实现，属于前端先设计语义、再推动后端加列的规划。v1 不包含。",
+      "newColumns": [
+        {
+          "name": "placeholder",
+          "type": "varchar(100)",
+          "nullable": true,
+          "frontendUsage": "DynamicField :placeholder=\"field.placeholder || `请输入{label}`\"",
+          "priority": "low"
+        },
+        {
+          "name": "default_value",
+          "type": "jsonb",
+          "nullable": true,
+          "frontendUsage": "form.extra[fieldKey] = field.defaultValue on mount / type change",
+          "priority": "medium"
+        },
+        {
+          "name": "min_length",
+          "type": "integer",
+          "nullable": true,
+          "frontendUsage": "rules 自动加 min 校验",
+          "priority": "low"
+        },
+        {
+          "name": "max_length",
+          "type": "integer",
+          "nullable": true,
+          "frontendUsage": "rules 自动加 max 校验 / el-input show-word-limit maxlength",
+          "priority": "low"
+        },
+        {
+          "name": "visible_when",
+          "type": "jsonb",
+          "nullable": true,
+          "description": "字段联动显示条件 JSON，如 { fieldKey: 'deviceType', eq: 'server' }",
+          "frontendUsage": "DynamicField v-if=\"evalCondition(field.visibleWhen, formData)\"",
+          "priority": "high"
+        }
+      ],
+      "conditionEvalSpec": {
+        "description": "visible_when / readonly_when 的条件求值语义",
+        "operators": {
+          "eq": "formData[fieldKey] === value",
+          "ne": "formData[fieldKey] !== value",
+          "in": "value 为数组，formData[fieldKey] ∈ value",
+          "notIn": "value 为数组，formData[fieldKey] ∉ value",
+          "gt / gte / lt / lte": "数值比较",
+          "and": "[] 数组，所有子条件为真时为真",
+          "or": "[] 数组，任一子条件为真时为真"
+        },
+        "examples": [
+          { "fieldKey": "deviceType", "eq": "server" },
+          { "fieldKey": "priority", "in": ["high", "critical"] },
+          { "and": [
+              { "fieldKey": "status", "eq": "processing" },
+              { "fieldKey": "userRole", "eq": "staff" }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

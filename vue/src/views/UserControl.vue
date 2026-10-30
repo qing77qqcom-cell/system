@@ -1,4 +1,5 @@
 <script setup>
+// 用户详情页：staff 看自己的，后端按 id 控制，不加 perm
 import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Back } from '@element-plus/icons-vue'

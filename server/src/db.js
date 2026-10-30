@@ -1,10 +1,17 @@
 import pg from 'pg'
 import { config } from './config.js'
 
+// ssl 配置：仅托管数据库（Neon/Supabase 等）需要；本地 Docker PostgreSQL 必须关闭
+// 通过 .env 的 DB_SSL=on/off 控制；缺省时根据 URL 是否含 sslmode 参数推断
+const url = config.databaseUrl || ''
+const sslOn =
+  process.env.DB_SSL === 'on' ||
+  (process.env.DB_SSL !== 'off' && /sslmode=require/i.test(url))
+
 export const pool = new pg.Pool({
-  connectionString: config.databaseUrl,
-  ssl: { rejectUnauthorized: false }, // Neon 托管要求 SSL
-  max: 5, // 免费实例连接数有限，控制池大小
+  connectionString: url,
+  ...(sslOn ? { ssl: { rejectUnauthorized: false } } : {}),
+  max: 10,
 })
 
 // 会话级时区统一为东八区，保证数据库侧日期函数与业务时区一致

@@ -32,4 +32,8 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  // LogicFlow 需要预构建，否则首次加载慢 + dev mode 可能报 ESM 警告
+  optimizeDeps: {
+    include: ['@logicflow/core', '@logicflow/extension'],
+  },
 })

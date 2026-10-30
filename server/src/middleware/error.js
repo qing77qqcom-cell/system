@@ -27,7 +27,7 @@ export function errorHandler(err, req, res, next) {
     return res.status(400).json({ code: 1001, message: '请求体格式错误（非法 JSON）', data: null })
   }
 
-  // 未知错误：开发环境打印堆栈，响应不泄漏内部细节
-  console.error('[未处理错误]', err)
+  // 未知错误：开发环境打印完整堆栈（含 pg 业务错误）
+  console.error('[未处理错误]', err?.stack || err)
   res.status(500).json({ code: 1500, message: '服务器内部错误', data: null })
 }

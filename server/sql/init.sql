@@ -351,10 +351,10 @@ CREATE INDEX idx_audit_logs_actor  ON audit_logs(actor_id);
 
 -- 3 个登录角色账号（初始密码 123456）
 INSERT INTO users (id, username, password_hash, name, role, dept, email) VALUES
-  (1, 'admin',  '$2b$10$gzFs0SmOo7czEek9xBtunegMDOXBOwdnEc/UMNhxr89Nd9vOS1RgO', '陈超',   '超级管理员',     NULL,     'admin@example.com'),
-  (2, 'leader', '$2b$10$gzFs0SmOo7czEek9xBtunegMDOXBOwdnEc/UMNhxr89Nd9vOS1RgO', '王建国', '技术部部长',     '技术部', 'leader@example.com'),
-  (3, 'staff',  '$2b$10$gzFs0SmOo7czEek9xBtunegMDOXBOwdnEc/UMNhxr89Nd9vOS1RgO', '李晓',   '技术部普通员工', '技术部', 'staff@example.com'),
-  (4, 'staff2', '$2b$10$gzFs0SmOo7czEek9xBtunegMDOXBOwdnEc/UMNhxr89Nd9vOS1RgO', '赵敏',   '技术部普通员工', '技术部', 'staff2@example.com');
+  (1, 'admin',  '$2b$10$9IUfW/Cn5obRPNPESXD2jeUFNrz5tR0r4uaLzA0Q53wKDwIqfnGJe', '陈超',   '超级管理员',     NULL,     'admin@example.com'),
+  (2, 'leader', '$2b$10$9IUfW/Cn5obRPNPESXD2jeUFNrz5tR0r4uaLzA0Q53wKDwIqfnGJe', '王建国', '技术部部长',     '技术部', 'leader@example.com'),
+  (3, 'staff',  '$2b$10$9IUfW/Cn5obRPNPESXD2jeUFNrz5tR0r4uaLzA0Q53wKDwIqfnGJe', '李晓',   '技术部普通员工', '技术部', 'staff@example.com'),
+  (4, 'staff2', '$2b$10$9IUfW/Cn5obRPNPESXD2jeUFNrz5tR0r4uaLzA0Q53wKDwIqfnGJe', '赵敏',   '技术部普通员工', '技术部', 'staff2@example.com');
 SELECT setval('users_id_seq', (SELECT max(id) FROM users));
 
 -- 角色权限矩阵（api-design.md §0.2）
@@ -364,6 +364,10 @@ INSERT INTO role_permissions (role, perm_code) VALUES
   ('超级管理员','menu:tickets'),   ('技术部部长','menu:tickets'),   ('技术部普通员工','menu:tickets'),
   ('超级管理员','menu:stats'),     ('技术部部长','menu:stats'),     ('技术部普通员工','menu:stats'),
   ('超级管理员','menu:system-config'), ('超级管理员','menu:user-manage'), ('超级管理员','menu:logs'),
+  -- 业务菜单：审批中心/团队管理（部长专属）；工单创建入口（员工专属）
+  ('技术部部长','menu:approval-center'),
+  ('技术部部长','menu:team-manage'),
+  ('技术部普通员工','menu:work-order-create'),
   -- 全员动作
   ('超级管理员','action:submit'),   ('技术部部长','action:submit'),   ('技术部普通员工','action:submit'),
   ('超级管理员','action:supplement'),('技术部部长','action:supplement'),('技术部普通员工','action:supplement'),
@@ -386,7 +390,14 @@ INSERT INTO role_permissions (role, perm_code) VALUES
   ('超级管理员','action:start'),   ('技术部普通员工','action:start'),
   ('超级管理员','action:resolve'), ('技术部普通员工','action:resolve'),
   -- 仅超管
-  ('超级管理员','action:mark_paid'), ('超级管理员','stats:export');
+  ('超级管理员','action:mark_paid'), ('超级管理员','stats:export'),
+  -- 字段级只读权限（field:readonly:{field_key}）
+  -- 普通员工：账号权限工单里的"权限类型"由审批后确定，提交时只读；设备编号由超管分配，提交时只读
+  ('技术部普通员工','field:readonly:permType'),
+  ('技术部普通员工','field:readonly:deviceNo'),
+  -- 部长在审批阶段只读 applicant 填的 description（示例，实际按业务调整）
+  ('技术部部长','field:readonly:amount'),
+  ('技术部部长','field:readonly:subject');
 
 -- 基础字典
 INSERT INTO sys_dictionaries (dict_type, code, label, sort) VALUES
@@ -455,7 +466,11 @@ INSERT INTO form_field_configs (ticket_type, field_key, label, field_type, requi
   ('reimbursement','amount','报销金额（元）','number',true,NULL,1),
   ('reimbursement','subject','报销科目','select',true,'["办公用品","差旅费","招待费","其他"]',2),
   ('account_permission','system','目标系统','select',true,'["OA","邮箱","VPN","ERP"]',1),
-  ('account_permission','permType','权限类型','select',true,'["新增","变更","注销"]',2);
+  ('account_permission','permType','权限类型','select',true,'["新增","变更","注销"]',2),
+  -- 故障报修（前端 DynamicForm 字段联动测试用）
+  ('fault_repair','deviceNo','设备编号','text',true,NULL,1),
+  ('fault_repair','deviceType','设备类型','select',true,'["电脑","打印机","服务器","路由器"]',2),
+  ('fault_repair','faultDesc','故障描述','textarea',false,NULL,3);
 
 -- ---------- 演示工单（SLA 记录由 scripts/backfillSla.js 补录） ----------
 INSERT INTO tickets (id, type, status, priority, fault_category, title, description, dept,

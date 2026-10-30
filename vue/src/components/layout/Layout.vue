@@ -3,27 +3,43 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { Tickets, ArrowDown, SwitchButton, UserFilled } from '@element-plus/icons-vue'
-import { currentUser, currentUserInfo } from '@/utils/helpers'
+import { useAuthStore } from '@/stores/store.js'
+import { logout as apiLogout } from '@/api/user'
+import { getTopMenus } from '@/schema/menu-config'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 
-const navs = [
-  { index: '/workbench', title: '工作台', roles: null },
-  { index: '/work-orders', title: '工单列表', roles: null },
-  { index: '/systemcontrol', title: '系统设置', roles: ['部长', '超级管理员'] },
-]
+/**
+ * 一级菜单：从 menu-config.js 的 getTopMenus() 统一取
+ * 个人中心的 index 带当前用户 id，运行时动态拼（见 visibleNavs）
+ */
+const visibleNavs = computed(() => {
+  const role = auth.role
+  const base = getTopMenus(role)
+  // 部长/员工末尾追加个人中心
+  if ((role === '技术部部长' || role === '技术部普通员工') && auth.user?.id) {
+    return [...base, { index: `/usercontrol/${auth.user.id}`, title: '个人中心' }]
+  }
+  return base
+})
 
-// 顶部导航按角色过滤（普通员工看不到系统设置）
-const visibleNavs = computed(() =>
-  navs.filter((n) => !n.roles || n.roles.includes(currentUserInfo()?.role)),
-)
-
-// 详情页归并到所属列表菜单高亮（/work-orders/* → 工单列表，/usercontrol/* → 系统设置）
+// 当前菜单高亮：路径归并到所属一级菜单
+// /work-orders/create → 员工有，归并到它；其他 /work-orders/* 部长超管菜单里没工单项 → 归并到工作台
 const activeMenu = computed(() => {
-  if (route.path.startsWith('/work-orders')) return '/work-orders'
-  if (route.path.startsWith('/usercontrol')) return '/systemcontrol'
-  return route.path
+  const p = route.path
+  if (p.startsWith('/workbench')) return '/workbench'
+  if (p.startsWith('/work-orders/create')) return '/work-orders/create'
+  if (p.startsWith('/work-orders')) return '/workbench'
+  if (p.startsWith('/approval-center')) return '/approval-center'
+  if (p.startsWith('/team-manage')) return '/team-manage'
+  if (p.startsWith('/help')) return '/help'
+  if (p.startsWith('/usercontrol')) {
+    return auth.user?.id ? `/usercontrol/${auth.user.id}` : p
+  }
+  if (p.startsWith('/systemcontrol')) return '/systemcontrol'
+  return p
 })
 
 const handleLogout = () => {
@@ -31,12 +47,14 @@ const handleLogout = () => {
     confirmButtonText: '退出',
     cancelButtonText: '取消',
     type: 'warning',
+    center: true,
   })
-    .then(() => {
-      localStorage.removeItem('oa_token')
+    .then(async () => {
+      try { await apiLogout() } catch { /* 后端登出失败不阻塞前端 */ }
+      auth.logout()
       router.push('/login')
     })
-    .catch(() => { })
+    .catch(() => { /* 用户点取消，啥也不做 */ })
 }
 </script>
 
@@ -62,12 +80,12 @@ const handleLogout = () => {
       </div>
 
         <div class="header-right">
-          <el-dropdown @command="(cmd) => cmd === 'logout' && handleLogout()">
+          <el-dropdown placement="top-end" @command="(cmd) => cmd === 'logout' && handleLogout()">
             <span class="user-info">
               <el-icon :size="16">
                 <UserFilled />
               </el-icon>
-              <span class="username">{{ currentUser() }}</span>
+              <span class="username">{{ auth.userName }}</span>
               <el-icon :size="12">
                 <ArrowDown />
               </el-icon>
@@ -197,5 +215,31 @@ const handleLogout = () => {
   .logo-text {
     display: none;
   }
+}
+</style>
+
+<!--
+  无 scoped：ElMessageBox / ElDialog 等 overlay 组件 teleport 到 body，
+  scoped 样式隔离后管不到。
+  强制居中：给 message-box / dialog 本体上 position:fixed + 自己算 50% 居中，
+  完全不依赖 overlay 的 flex / height 检测。
+-->
+<style>
+.el-message-box,
+.el-dialog {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  margin: 0 !important;
+}
+
+.el-overlay-message-box,
+.el-overlay-dialog {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
 }
 </style>

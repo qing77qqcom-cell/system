@@ -1,39 +1,89 @@
-// 前端常量（原 mock 目录清理后唯一保留的静态数据）
-// - DEPT/ROLE 选项：与后端 server/src/constants.js 保持镜像，新增枚举需两端同步
+// 前端常量（与后端 server/src/constants.js 保持镜像）
+// - ROLE 中文：后端实际返回这 3 个中文角色名
+// - STATUS 英文枚举：后端 tickets.status 为英文枚举（10 态），此处做中文 + el-tag 颜色映射
 // - *_TAG_TYPE：纯 UI 颜色映射，与后端数据无关
-// - ANNOUNCEMENTS：演示用公告死数据（无对应后端模块，保留展示）
+// - ANNOUNCEMENTS：演示用公告死数据（无对应后端模块）
 
 export const DEPT_OPTIONS = ['技术部', '市场部', '财务部', '人事部', '行政部']
 
-export const ROLE_OPTIONS = ['超级管理员', '部长', '普通员工']
+// 后端返回的中文角色名
+export const ROLE_OPTIONS = ['超级管理员', '技术部部长', '技术部普通员工']
+export const ROLE = {
+  ADMIN: '超级管理员',
+  LEADER: '技术部部长',
+  STAFF: '技术部普通员工',
+}
 
 // 角色 → el-tag 类型
 export const ROLE_TAG_TYPE = {
   超级管理员: 'danger',
-  部长: 'warning',
-  普通员工: 'info',
+  技术部部长: 'warning',
+  技术部普通员工: 'info',
 }
 
 // 用户状态 → el-tag 类型
 export const USER_STATUS_TAG_TYPE = {
   启用: 'success',
   禁用: 'info',
+  锁定: 'danger',
 }
 
-// 工单状态 → el-tag 类型
+// ---------- 工单状态（10 态英文枚举 → 中文 + el-tag 颜色） ----------
+export const STATUS_TEXT = {
+  draft: '草稿',
+  pending_approval: '待审批',
+  pending_assignment: '待分配',
+  pending_acceptance: '待接单',
+  pending_processing: '待处理',
+  processing: '处理中',
+  pending_confirmation: '待确认',
+  suspended: '已挂起',
+  cancelled: '已取消',
+  closed: '已关闭',
+}
+
 export const STATUS_TAG_TYPE = {
-  待处理: 'warning',
-  处理中: 'primary',
-  已完成: 'success',
-  已关闭: 'info',
-  已退回: 'danger',
+  draft: 'info',
+  pending_approval: 'warning',
+  pending_assignment: 'warning',
+  pending_acceptance: 'warning',
+  pending_processing: 'warning',
+  processing: 'primary',
+  pending_confirmation: 'warning',
+  suspended: 'info',
+  cancelled: 'info',
+  closed: 'success',
 }
 
-// 工单优先级 → el-tag 类型
+// 工单优先级 → el-tag 类型（字典 code，后端返回）
 export const PRIORITY_TAG_TYPE = {
-  高: 'danger',
+  high: 'danger',
+  medium: 'warning',
+  low: 'info',
+  高: 'danger',   // 兼容旧 mock 中文值
   中: 'warning',
   低: 'info',
+}
+
+// SLA 状态 → el-tag 类型
+export const SLA_STATUS_TAG_TYPE = {
+  pending: 'info',
+  running: 'primary',
+  paused: 'warning',
+  breached: 'danger',
+  met: 'success',
+  breached_closed: 'danger',
+  cancelled: 'info',
+}
+
+export const SLA_STATUS_TEXT = {
+  pending: '待启动',
+  running: '计时中',
+  paused: '已暂停',
+  breached: '已超时',
+  met: '已达标',
+  breached_closed: '超时完结',
+  cancelled: '已取消',
 }
 
 // 演示公告（暂无后端公告模块）

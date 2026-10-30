@@ -82,9 +82,9 @@ const reloadTicket = async (client, id) => {
   return rows[0]
 }
 
-// extra 按 form_field_configs 校验（必填/类型/选项）
-const validateExtra = async (queryable, type, extra) => {
-  const { rows: fields } = await queryable.query(
+// extra 按 form_field_configs 校验（必填/类型/选项）。runner 传入 pool.query 函数或事务内 client.query
+const validateExtra = async (runner, type, extra) => {
+  const { rows: fields } = await runner(
     'SELECT * FROM form_field_configs WHERE ticket_type = $1 AND active ORDER BY sort',
     [type],
   )
@@ -652,18 +652,90 @@ router.get('/export', requireRole(ROLES.ADMIN), async (req, res) => {
   res.send('﻿' + lines.join('\r\n')) // BOM 保证 Excel 中文不乱码
 })
 
+// GET /api/tickets/abnormal —— 异常工单聚合（/abnormal 必须在 /:id 前注册）
+router.get('/abnormal', async (req, res) => {
+  const { abnormalType } = req.query
+  assert(['sla_breach', 'escalated', 'sla_exempt', 'long_suspended'].includes(abnormalType),
+    'abnormalType 仅支持 sla_breach / escalated / sla_exempt / long_suspended')
+  // 各异常类型 = listTickets 额外 WHERE 片段 + 共用 ticket 筛选（dept/priority/dateFrom/dateTo 等）
+  let extraWhere = []
+  let extraParams = []
+  if (abnormalType === 'sla_breach') {
+    // 有 active overall SLA 记录 is_breached 且工单非终态
+    extraWhere.push(
+      `t.id IN (SELECT ticket_id FROM sla_records
+                 WHERE metric_type = 'overall' AND is_breached AND sla_status NOT IN ('met','breached_closed','cancelled'))`,
+    )
+  } else if (abnormalType === 'escalated') {
+    extraWhere.push(`COALESCE(t.escalated_level, 0) >= 1`)
+  } else if (abnormalType === 'sla_exempt') {
+    extraWhere.push(`t.sla_exempt IS TRUE`)
+  } else if (abnormalType === 'long_suspended') {
+    // 挂起 ≥ 7 天（默认阈值，可被 suspendedDays 参数覆盖）
+    const defaultDays = 7
+    const n = Number(req.query.suspendedDays ?? defaultDays)
+    assert(Number.isInteger(n) && n >= 0, 'suspendedDays 必须是非负整数')
+    extraParams.push(`-${n} days`)
+    extraWhere.push(`t.status = 'suspended' AND t.updated_at <= now() + $${extraParams.length}::interval`)
+  }
+  const { rows } = await listTickets(req, extraWhere, extraParams)
+  // 每条标记异常类型（多标签：同时超时+升级则两个标签都有）
+  const data = rows.map((r) => ({
+    ...toTicketDTO(r),
+    abnormalTags: [abnormalType], // 主标签；前端可再叠加 overallSla.isBreached 作为次级标签
+  }))
+  ok(res, data)
+})
+
+// GET /api/tickets/:id/sla-events —— SLA 事件时间线（工单内 SLA 事件，比 sla-records 更细）
+router.get('/:id/sla-events', async (req, res) => {
+  const { rows: t } = await query(
+    'SELECT * FROM tickets WHERE id = $1 AND deleted_at IS NULL', [req.params.id])
+  if (!t[0] || !inScope(req.user, t[0])) throw new ApiError(404, '工单不存在')
+  const { rows } = await query(
+    `SELECT e.*, r.metric_type, r.sla_status AS rec_status
+       FROM sla_events e
+       LEFT JOIN sla_records r ON r.id = e.sla_id
+      WHERE e.ticket_id = $1
+      ORDER BY e.event_time, e.id`,
+    [req.params.id],
+  )
+  const data = rows.map((r) => ({
+    id: r.id,
+    slaId: r.sla_id,
+    metricType: r.metric_type,
+    eventType: r.event_type,
+    fromStatus: r.from_status,
+    toStatus: r.to_status,
+    triggerSource: r.trigger_source,
+    operatorId: r.operator_id,
+    reason: r.reason,
+    metadata: r.metadata || null,
+    elapsedMs: r.elapsed_duration != null ? Math.round(Number(r.elapsed_duration)) : null,
+    eventTime: formatDateTime(r.event_time),
+  }))
+  ok(res, data)
+})
+
 // ---------- 列表 / 详情 / 创建 / 编辑 ----------
 
-// 列表查询（GET / 与 /export 共用）：筛选 AND 组合，范围按 §0.1
-const listTickets = async (req) => {
-  const { keyword, type, status, priority, dept, dateFrom, dateTo, handlerId, archived } = req.query
+// 列表查询（GET / 与 /export /abnormal 共用）：筛选 AND 组合，范围按 §0.1
+const listTickets = async (req, extraWhere = [], extraParams = []) => {
+  const { keyword, type, status, priority, dept, dateFrom, dateTo, handlerId, archived,
+          escalated, slaExempt, suspendedDays } = req.query
   if (type !== undefined) assert(TICKET_TYPES.includes(type), '工单类型不正确')
   if (status !== undefined) assert(Object.values(STATUS).includes(status), '工单状态不正确')
   if (dateFrom !== undefined) assert(isDateString(dateFrom), 'dateFrom 格式应为 YYYY-MM-DD')
   if (dateTo !== undefined) assert(isDateString(dateTo), 'dateTo 格式应为 YYYY-MM-DD')
+  if (escalated !== undefined) assert(['true', 'false'].includes(escalated), 'escalated 仅支持 true/false')
+  if (slaExempt !== undefined) assert(['true', 'false'].includes(slaExempt), 'slaExempt 仅支持 true/false')
+  if (suspendedDays !== undefined) {
+    const n = Number(suspendedDays)
+    assert(Number.isInteger(n) && n >= 0, 'suspendedDays 必须是非负整数')
+  }
 
-  const params = []
-  const where = ['t.deleted_at IS NULL', scopeSql(req.user, 't', params)]
+  const params = [...extraParams]
+  const where = ['t.deleted_at IS NULL', scopeSql(req.user, 't', params), ...extraWhere]
   // archived 默认 false（仅看未归档）
   where.push(archived === 'true' ? 't.archived_at IS NOT NULL' : 't.archived_at IS NULL')
   if (keyword) {
@@ -681,6 +753,24 @@ const listTickets = async (req) => {
     to.setDate(to.getDate() + 1) // 含当日
     params.push(to)
     where.push(`t.created_at < $${params.length}`)
+  }
+  // 额外筛选（超管/部长后端过滤依据，避免前端多步遍历）
+  if (escalated === 'true') {
+    params.push(1)
+    where.push(`t.escalated_level >= $${params.length}`)
+  } else if (escalated === 'false') {
+    where.push(`COALESCE(t.escalated_level, 0) = 0`)
+  }
+  if (slaExempt === 'true') {
+    where.push(`t.sla_exempt IS TRUE`)
+  } else if (slaExempt === 'false') {
+    where.push(`COALESCE(t.sla_exempt, FALSE) = FALSE`)
+  }
+  if (suspendedDays !== undefined) {
+    // 挂起 ≥ N 天（挂起时间 = now - updated_at；updated_at 在 suspend 动作时更新）
+    const n = Number(suspendedDays)
+    params.push(`-${n} days`)
+    where.push(`t.status = 'suspended' AND t.updated_at <= now() + $${params.length}::interval`)
   }
   const { rows } = await query(
     `SELECT t.*, a.name AS applicant_name, h.name AS handler_name
@@ -737,7 +827,7 @@ router.get('/:id', async (req, res) => {
 
 // POST /api/tickets —— 创建（submit=false 存草稿；true 直接走 submit 动作）
 router.post('/', async (req, res) => {
-  const { type, title, priority, faultCategory, description, attachments, extra, submit } = req.body || {}
+  const { type, title, priority, faultCategory, description, attachments, extra, submit, dept } = req.body || {}
   assert(TICKET_TYPES.includes(type), '工单类型不正确')
   assert(typeof title === 'string' && title.trim(), '标题不能为空')
   assert(title.trim().length <= 200, '标题不能超过 200 字')
@@ -750,6 +840,9 @@ router.post('/', async (req, res) => {
   await validateExtra(query, type, extraObj)
 
   const user = req.user
+  // 工单归属部门：body.dept（超管可指定） > 申请人 dept > 兜底
+  const resolvedDept = dept || user.dept || '技术部'
+
   const ticket = await withTx(async (client) => {
     const id = await genTicketId(client)
     const { rows } = await client.query(
@@ -759,7 +852,7 @@ router.post('/', async (req, res) => {
       [
         id, type, title.trim(), priority ?? null,
         type === 'fault_repair' ? faultCategory ?? null : null,
-        description ?? null, user.dept ?? '总部', user.id,
+        description ?? null, resolvedDept, user.id,
         JSON.stringify(extraObj), JSON.stringify(attachments ?? []),
       ],
     )

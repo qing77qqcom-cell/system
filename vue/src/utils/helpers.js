@@ -39,17 +39,3 @@ export function greeting() {
   if (h < 18) return '下午好'
   return '晚上好'
 }
-
-// 获取当前登录用户完整信息 { id, username, name, role, dept, ... }，未登录返回 null
-export function currentUserInfo() {
-  try {
-    return JSON.parse(localStorage.getItem('oa_token') || '{}').user || null
-  } catch {
-    return null
-  }
-}
-
-// 获取当前登录用户姓名（用于展示与日志记录）
-export function currentUser() {
-  return currentUserInfo()?.name || '未登录'
-}

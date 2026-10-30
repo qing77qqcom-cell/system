@@ -17,8 +17,9 @@ const getParam = async (key, fallback) => {
   return rows[0] ? rows[0].value : fallback
 }
 
-const writeLoginLog = (client, { userId, username, success, req }) =>
-  client.query(
+// runner 接受 pool.query 或事务内 client.query（pg client 与 pool 接口一致）
+const writeLoginLog = (runner, { userId, username, success, req }) =>
+  runner(
     `INSERT INTO login_logs (user_id, username, success, ip, user_agent)
      VALUES ($1, $2, $3, $4, $5)`,
     [userId, username, success, req.ip || null, req.headers['user-agent'] || null],
@@ -80,6 +81,18 @@ router.post('/login', async (req, res) => {
 // GET /api/users/me —— 当前登录用户（刷新恢复登录态）
 router.get('/users/me', requireAuth, (req, res) => {
   ok(res, toUserDTO(req.user))
+})
+
+// POST /api/logout —— 退出登录（写登出日志；JWT 方案不做 token 吊销，客户端销毁即可）
+router.post('/logout', requireAuth, async (req, res) => {
+  const u = req.user
+  await writeLoginLog(query, {
+    userId: u.id,
+    username: u.username,
+    success: true,
+    req,
+  })
+  ok(res, { loggedOut: true })
 })
 
 export default router
