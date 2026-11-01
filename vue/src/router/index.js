@@ -47,12 +47,41 @@ const constantRoutes = [
             component: () => import('@/views/TodoPanel.vue'),
             meta: { title: '通知待办', perm: 'menu:workbench' },
           },
+
+          // —— 全局数据分析（5 个独立页面，原 datalist.vue 已废弃）——
           {
-            path: 'datalist',
-            name: 'workbenchDatalist',
-            component: () => import('@/views/datalist.vue'),
-            meta: { title: '数据分析', perm: 'menu:stats' },
+            path: 'stats/overview',
+            name: 'statsOverview',
+            component: () => import('@/views/stats/StatsOverview.vue'),
+            meta: { title: '工单总览', perm: 'menu:stats' },
           },
+          {
+            path: 'stats/trend',
+            name: 'statsTrend',
+            component: () => import('@/views/stats/StatsTrend.vue'),
+            meta: { title: '趋势分析', perm: 'menu:stats' },
+          },
+          {
+            path: 'stats/status',
+            name: 'statsStatus',
+            component: () => import('@/views/stats/StatsStatus.vue'),
+            meta: { title: '状态分布', perm: 'menu:stats' },
+          },
+          {
+            path: 'stats/sla',
+            name: 'statsSla',
+            component: () => import('@/views/stats/StatsSla.vue'),
+            meta: { title: 'SLA 时效', perm: 'menu:stats' },
+          },
+          {
+            path: 'stats/workload',
+            name: 'statsWorkload',
+            component: () => import('@/views/stats/StatsWorkload.vue'),
+            meta: { title: '部门排行', perm: 'menu:stats' },
+          },
+          // 兼容旧链接：/workbench/datalist → 工单总览
+          { path: 'datalist', redirect: '/workbench/stats/overview' },
+
           {
             path: 'workorderlist',
             name: 'workbenchWorkOrderList',

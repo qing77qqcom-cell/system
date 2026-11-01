@@ -721,7 +721,7 @@ router.get('/:id/sla-events', async (req, res) => {
 
 // 列表查询（GET / 与 /export /abnormal 共用）：筛选 AND 组合，范围按 §0.1
 const listTickets = async (req, extraWhere = [], extraParams = []) => {
-  const { keyword, type, status, priority, dept, dateFrom, dateTo, handlerId, archived,
+  const { keyword, type, status, priority, dept, dateFrom, dateTo, handlerId, applicantId, archived,
           escalated, slaExempt, suspendedDays } = req.query
   if (type !== undefined) assert(TICKET_TYPES.includes(type), '工单类型不正确')
   if (status !== undefined) assert(Object.values(STATUS).includes(status), '工单状态不正确')
@@ -747,6 +747,7 @@ const listTickets = async (req, extraWhere = [], extraParams = []) => {
   if (priority) { params.push(priority); where.push(`t.priority = $${params.length}`) }
   if (dept) { params.push(dept); where.push(`t.dept = $${params.length}`) }
   if (handlerId) { params.push(Number(handlerId)); where.push(`t.current_handler_id = $${params.length}`) }
+  if (applicantId) { params.push(Number(applicantId)); where.push(`t.applicant_id = $${params.length}`) }
   if (dateFrom) { params.push(parseDate(dateFrom)); where.push(`t.created_at >= $${params.length}`) }
   if (dateTo) {
     const to = parseDate(dateTo)

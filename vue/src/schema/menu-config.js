@@ -83,15 +83,15 @@ export const ROLE_MENU_TREE = {
           ],
         },
         {
-          index: '/workbench/datalist',
+          index: '/workbench/stats/overview',
           title: '全局数据分析',
           icon: DataAnalysis,
           children: [
-            { index: '/workbench/datalist?tab=overview',   title: '工单总览' },
-            { index: '/workbench/datalist?tab=trend',     title: '趋势分析' },
-            { index: '/workbench/datalist?tab=distribution', title: '状态分布' },
-            { index: '/workbench/datalist?tab=sla',        title: 'SLA 时效' },
-            { index: '/workbench/datalist?tab=workload',   title: '部门排行' },
+            { index: '/workbench/stats/overview', title: '工单总览' },
+            { index: '/workbench/stats/trend',    title: '趋势分析' },
+            { index: '/workbench/stats/status',   title: '状态分布' },
+            { index: '/workbench/stats/sla',      title: 'SLA 时效' },
+            { index: '/workbench/stats/workload', title: '部门排行' },
           ],
         },
         {
@@ -190,14 +190,14 @@ export const ROLE_MENU_TREE = {
           ],
         },
         {
-          index: '/workbench/datalist',
+          index: '/workbench/stats/overview',
           title: '部门数据分析',
           icon: DataAnalysis,
           children: [
-            { index: '/workbench/datalist?tab=overview',   title: '部门工单量' },
-            { index: '/workbench/datalist?tab=workload',    title: '成员处理量' },
-            { index: '/workbench/datalist?tab=sla',        title: 'SLA 达成率' },
-            { index: '/workbench/datalist?tab=distribution', title: '积压工单' },
+            { index: '/workbench/stats/overview', title: '部门工单量' },
+            { index: '/workbench/stats/workload', title: '成员处理量' },
+            { index: '/workbench/stats/sla',      title: 'SLA 达成率' },
+            { index: '/workbench/stats/status',   title: '积压工单' },
           ],
         },
         {
@@ -257,14 +257,14 @@ export const ROLE_MENU_TREE = {
           ],
         },
         {
-          index: '/workbench/datalist',
+          index: '/workbench/stats/overview',
           title: '我的统计',
           icon: DataAnalysis,
           children: [
-            { index: '/workbench/datalist?tab=submitted', title: '我提交的' },
-            { index: '/workbench/datalist?tab=handled',   title: '我处理的' },
-            { index: '/workbench/datalist?tab=status',    title: '待处理/已完成' },
-            { index: '/workbench/datalist?tab=sla',       title: '超时数' },
+            { index: '/workbench/stats/overview', title: '我提交的' },
+            { index: '/workbench/stats/workload', title: '我处理的' },
+            { index: '/workbench/stats/status',   title: '待处理/已完成' },
+            { index: '/workbench/stats/sla',      title: '超时数' },
           ],
         },
         {

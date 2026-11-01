@@ -13,9 +13,22 @@ import { getMeta } from '@/api/meta'
 import { PRIORITY_TAG_TYPE, STATUS_TAG_TYPE } from '@/constants'
 import { isOverdue } from '@/utils/helpers'
 import { useLoading } from '@/composables/useLoading.js'
+import { useAuthStore } from '@/stores/store.js'
+
+// tab → 实际筛选参数的翻译表（三角色三级菜单项共用）
+// scopeSql 已经按角色限制了工单范围，这里只是在 scope 内做额外筛选
+const TAB_TRANSLATE = {
+  mine:    { title: '我提交的',   applicantId: true },   // staff: 我提交 / leader: scopeSql 已是本部门 + 申请人=我
+  handled:  { title: '我处理的',   handlerId: true },     // handlerId = 当前用户
+  draft:    { title: '草稿箱',     status: 'draft' },
+  all:      { title: '工单大厅',   /* scopeSql 足够 */ },
+  dept:     { title: '本部门工单', /* scopeSql(leader)=本部门 */ },
+  escalated:{ title: '异常工单',   escalated: 'true' },
+}
 
 // 状态筛选子菜单（动态 base path，支持两个入口：/work-orders 和 /workbench/workorderlist）
 const route = useRoute()
+const auth = useAuthStore()
 const asideBase = computed(() => {
   if (route.path.startsWith('/workbench/workorderlist')) return '/workbench/workorderlist'
   return '/work-orders'
@@ -62,16 +75,38 @@ const queryForm = reactive({
 })
 const applied = reactive({
   keyword: '', dept: '', type: '', status: '', priority: '', dates: [],
+  tab: '', applicantId: '', handlerId: '', escalated: '',
   page: 1, pageSize: 5, sortProp: '', sortOrder: '',
 })
 const selectedRows = ref([])
 
+// 标题：优先 tab 翻译标题，其次 status 匹配
 const title = computed(() => {
+  const tab = route.query.tab
   const status = route.query.status
-  if (!status) return '已提交'
+  if (tab && TAB_TRANSLATE[tab]?.title) return TAB_TRANSLATE[tab].title
+  if (!status) return '工单列表'
   const found = visibleMenus.value.find((m) => m.status === status)
-  return found ? found.title : '已提交'
+  return found ? found.title : '工单列表'
 })
+
+// 把 route.query 的 tab/status 翻译成 applied 的实际筛选参数
+function translateTabAndStatus(q) {
+  // 先清 tab 派生出的字段（避免保留上一次 tab 的筛选）
+  applied.applicantId = ''
+  applied.handlerId = ''
+  applied.escalated = ''
+
+  if (q.tab && TAB_TRANSLATE[q.tab]) {
+    const t = TAB_TRANSLATE[q.tab]
+    if (t.applicantId) applied.applicantId = auth.user?.id || ''
+    if (t.handlerId) applied.handlerId = auth.user?.id || ''
+    if (t.status) applied.status = t.status
+    if (t.escalated) applied.escalated = t.escalated
+  } else if (q.status !== undefined) {
+    applied.status = q.status
+  }
+}
 
 function hydrateFromQuery(q = route.query) {
   queryForm.keyword = q.keyword || ''
@@ -84,12 +119,13 @@ function hydrateFromQuery(q = route.query) {
     keyword: queryForm.keyword,
     dept: queryForm.dept,
     type: queryForm.type,
-    status: queryForm.status,
     priority: queryForm.priority,
     dates: [...queryForm.dates],
+    tab: q.tab || '',
     page: Number(q.page) || 1,
     pageSize: Number(q.pageSize) || 5,
   })
+  translateTabAndStatus(q)
 }
 
 function syncQuery() {
@@ -119,6 +155,10 @@ async function loadList() {
       params.dateFrom = applied.dates[0]
       params.dateTo = applied.dates[1]
     }
+    // tab 派生出的额外筛选参数
+    if (applied.applicantId) params.applicantId = applied.applicantId
+    if (applied.handlerId) params.handlerId = applied.handlerId
+    if (applied.escalated) params.escalated = applied.escalated
     try {
       orders.value = await listOrders(params)
     } catch {
@@ -203,13 +243,7 @@ loadList()
 
 <template>
   <div class="list-layout">
-    <!-- 左侧状态筛选 Aside -->
-    <el-menu :default-active="activeIndex" router class="sub-aside">
-      <el-menu-item v-for="m in visibleMenus" :key="m.index" :index="m.index">
-        <el-icon><component :is="m.icon" /></el-icon>
-        <template #title>{{ m.title }}</template>
-      </el-menu-item>
-    </el-menu>
+
 
     <!-- 右侧主内容：搜索卡 + 表格卡 -->
     <div class="list-content">
