@@ -1,36 +1,19 @@
 <script setup>
 /**
- * 通用壳组件：横向二级菜单 + AsideBar(二级+三级) + router-view
+ * 通用壳组件：横向二级菜单 + AsideBar(二级/三级) + router-view
  *
- * 用法1（工作台 · 带问候卡）：
- *   <MenuLayout top-index="/workbench">
- *     <template #header><div class="hello-card">...</div></template>
- *   </MenuLayout>
+ * 关键设计（为了"虚拟分组 → 真实叶子"联动）：
  *
- * 用法2（系统设置 · 纯净）：
- *   <MenuLayout top-index="/systemcontrol" />
+ *   路由结构：/workbench/todo    ← 直接就是二级菜单的 index
+ *             /systemcontrol     ← 路由是叶子，但菜单里它在"组织与权限管理"组下面
  *
- * 用法3（只留 AsideBar · 隐藏横向）：
- *   <MenuLayout top-index="/team-manage" :show-top-menu="false" />
- *
- * 联动原理：
- *   横向 el-menu 和 AsideBar 共用同一个 secondMenus 数组（从 menu-config.js 按 topIndex 取），
- *   都用 router 模式，点击任何一项都走 router.push → 两边的 default-active / default-openeds 自动同步。
- *
- * Props:
- *   topIndex   {String}  一级菜单 index，如 '/workbench'、'/systemcontrol'、'/approval-center'
- *                       内部会调 getSubTree(auth.role, topIndex)?.children 拿二级菜单数组
- *   showTopMenu {Boolean} 是否显示顶部横向二级菜单（默认 true）
- *
- * Slots:
- *   header  可选，放在横向菜单上方（Workbench 放问候卡，其他页面可空）
- *
- * router-view:
- *   该组件设计为路由的 component 或 Layout 的子组件，内部 router-view 渲染当前路由的 children。
- *   例如：/workbench → MenuLayout(Workbench.vue 替代) → 渲染 children todo/datalist/workorderlist
+ *   工作台联动：secondMenus[i].index === 真实路由 → el-menu router 模式直接用 ✅
+ *   系统设置联动：secondMenus[i].index === 虚拟分组（路由里不存在）
+ *     → 横向菜单用虚拟 index 渲染，但 @select 时翻译成组内第一个真实叶子路径
+ *     → 这样：点击组 → router.push(叶子路径) → 导航 + 横向 + 竖同时联动
  */
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/store.js'
 import AsideBar from '@/components/AsideBar.vue'
 import { getSubTree } from '@/schema/menu-config'
@@ -49,30 +32,75 @@ const props = defineProps({
 
 const auth = useAuthStore()
 const route = useRoute()
+const router = useRouter()
 
-/**
- * 二级菜单完整数组（横向菜单条和 AsideBar 共用 → 数据源唯一保证联动一致）
- * 每项结构：{ index, title, icon?, children? }
- *   - 有 children → AsideBar 里是 el-sub-menu（标题=二级，展开后=三级叶子）
- *   - 无 children → AsideBar 里是 el-menu-item（叶子，直接 router 跳转）
- */
+// ———————— 数据源 ————————
+
+/** AsideBar 用的完整菜单树（保留 children 嵌套） */
 const secondMenus = computed(() => getSubTree(auth.role, props.topIndex)?.children || [])
 
+/** 递归找"第一个叶子"（没有 children 的节点 = 真实路由） */
+function findFirstLeafIndex(item) {
+  if (!item.children?.length) return item.index || ''
+  for (const c of item.children) {
+    const r = findFirstLeafIndex(c)
+    if (r) return r
+  }
+  return ''
+}
+
 /**
- * 当前激活的二级菜单 index：按路由 path 前缀匹配
- * /workbench/todo?tab=notice → 匹配到 { index: '/workbench/todo', title: '通知待办' }
- * 这个值驱动横向菜单条高亮；AsideBar 内部自己算 activeIndex / openedKeys
+ * 虚拟分组 index → 真实叶子 index 的映射表
+ *   '/systemcontrol/org-perm'  → '/systemcontrol'
+ *   '/systemcontrol/flow-rule' → '/systemcontrol/approval-flow?tab=list'
+ * 横向菜单渲染时用虚拟 index（组名），@select 时 translate 成真实路径再 push
  */
-const activeSecondIndex = computed(() => {
-  const p = route.path
-  const hit = secondMenus.value.find((m) => p.startsWith(m.index.split('?')[0]))
-  return hit ? hit.index : secondMenus.value[0]?.index || ''
+const groupToLeafMap = computed(() => {
+  const map = {}
+  for (const m of secondMenus.value) {
+    map[m.index] = findFirstLeafIndex(m) || m.index
+  }
+  return map
 })
 
 /**
- * 是否显示 AsideBar：只有当二级菜单数组非空时才显示
- * 空数组说明当前角色没有这个 topIndex 的菜单（不会发生，但防御一下）
+ * 路由 path → 虚拟分组 index 的反向映射
+ *   当前路由 '/systemcontrol/rolecontrol' → 属于虚拟组 '/systemcontrol/org-perm'
+ * 用来算 activeSecondIndex（横向菜单哪个组应该高亮）
  */
+function findGroupIndexByPath(path) {
+  for (const m of secondMenus.value) {
+    // 组内任意叶子能匹配 path → 这个组就是 active 的
+    if (findMatchingLeaf(m, path)) return m.index
+  }
+  return secondMenus.value[0]?.index || ''
+}
+function findMatchingLeaf(item, targetPath) {
+  if (!item.children?.length) {
+    const itemPath = item.index.split('?')[0]
+    return targetPath.startsWith(itemPath) || itemPath.startsWith(targetPath)
+  }
+  for (const c of item.children) {
+    if (findMatchingLeaf(c, targetPath)) return true
+  }
+  return false
+}
+
+// ———————— 横向菜单状态 ————————
+
+/** el-menu :default-active —— 虚拟组 index（不是真实叶子） */
+const activeSecondIndex = computed(() => findGroupIndexByPath(route.path))
+
+/** el-menu @select handler —— 虚拟组 index → translate → router.push(真实叶子) */
+function onHorizontalSelect(groupIndex) {
+  const target = groupToLeafMap.value[groupIndex] || groupIndex
+  if (!target) return
+  if (target !== route.fullPath) {
+    router.push(target)
+  }
+}
+
+// ———————— AsideBar 可见性 ————————
 const showAside = computed(() => secondMenus.value.length > 0)
 </script>
 
@@ -83,21 +111,30 @@ const showAside = computed(() => secondMenus.value.length > 0)
       <slot name="header" />
     </div>
 
-    <!-- 横向二级菜单条 -->
+    <!--
+      横向二级菜单条：
+      · :index = 虚拟组 index（用来关联 activeSecondIndex 和 AsideBar 展开逻辑）
+      · router = false（关！因为虚拟 index 不是真实路由，push 会 404）
+      · @select = 手动 translate 成真实叶子再 push
+    -->
     <el-menu
       v-if="showTopMenu && showAside"
       :default-active="activeSecondIndex"
       mode="horizontal"
-      router
+      @select="onHorizontalSelect"
       class="ml-top-menu"
     >
-      <el-menu-item v-for="m in secondMenus" :key="m.index" :index="m.index">
+      <el-menu-item
+        v-for="m in secondMenus"
+        :key="m.index"
+        :index="m.index"
+      >
         <el-icon v-if="m.icon"><component :is="m.icon" /></el-icon>
         {{ m.title }}
       </el-menu-item>
     </el-menu>
 
-    <!-- 主体：AsideBar(二级+三级完整树) + router-view -->
+    <!-- 主体 -->
     <div class="ml-body">
       <aside v-if="showAside" class="ml-aside">
         <AsideBar :menus="secondMenus" />
@@ -125,7 +162,6 @@ const showAside = computed(() => secondMenus.value.length > 0)
   display: flex;
   gap: 16px;
   align-items: flex-start;
-  /* 给 router-view 子页面一个确定的最小高度，内部 LogicFlow 画布需要 */
   min-height: 620px;
 }
 
@@ -141,6 +177,6 @@ const showAside = computed(() => secondMenus.value.length > 0)
 .ml-content {
   flex: 1;
   min-width: 0;
-  min-height: 620px;  /* 关键：给子页面一个确定高度 */
+  min-height: 620px;
 }
 </style>

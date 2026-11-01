@@ -77,6 +77,7 @@ function registerSelectionListeners() {
   const lfCore = lf.value
 
   lfCore.on('node:click', ({ data }) => {
+    console.log('[FlowCanvas] node:click data.type =', data?.type, 'data.id =', data?.id, 'data.properties =', JSON.stringify(data?.properties || {}))
     selectedNode.value = data
     emit('node-select', data)
   })

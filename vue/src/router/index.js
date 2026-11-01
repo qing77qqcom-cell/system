@@ -138,6 +138,12 @@ const constantRoutes = [
             component: () => import('@/views/UserLogControl.vue'),
             meta: { title: '操作日志', perm: 'menu:logs' },
           },
+          {
+            path: 'loginlogcontrol',
+            name: 'loginlogControl',
+            component: () => import('@/views/LoginLogControl.vue'),
+            meta: { title: '登录日志', perm: 'menu:logs' },
+          },
         ],
       },
 

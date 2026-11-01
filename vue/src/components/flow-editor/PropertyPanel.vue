@@ -4,34 +4,45 @@
  *
  * 接收一个选中节点对象（LogicFlow 的 node.model），根据节点类型展示不同表单：
  *   - USER_TASK：nodeName + approverStrategy + skipRule
- *   - EXCLUSIVE_GATEWAY：condition（条件表达式）
+ *   - EXCLUSIVE_GATEWAY：condition（条件表达式）+ 出口标签
  *   - START / END：只读提示"这是 BPMN 内置节点，无需配置"
  *
  * 属性变更 → emit('update', { id, properties }) → 画布更新节点 properties
  */
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { BPMN_NODE_TYPES } from '@/composables/useLogicFlow'
 import { APPROVER_STRATEGIES } from '@/composables/convertFlow'
 
 const props = defineProps({
-  /** LogicFlow 选中节点的 model 对象（从 lf.getSelectElements() 取） */
+  /** LogicFlow 选中节点的 model 对象 */
   selectedNode: { type: Object, default: null },
 })
 
 const emit = defineEmits(['update'])
 
-/** 当前节点类型（方便 v-if 分支） */
+/** 调试：每次选中节点时打印 type，确认 LogicFlow 返回的是什么 */
+watch(() => props.selectedNode?.type, (t) => {
+  if (t) console.log('[PropertyPanel] selected node type:', t, 'expected gateway:', BPMN_NODE_TYPES.EXCLUSIVE_GATEWAY, 'match:', t?.toLowerCase?.() === BPMN_NODE_TYPES.EXCLUSIVE_GATEWAY.toLowerCase())
+}, { immediate: true })
+
+/** 当前节点类型 */
 const nodeType = computed(() => props.selectedNode?.type)
 
 /**
+ * 类型归一化比较 — LogicFlow 内部 type 大小写不固定
+ * 可能是 'bpmn:ExclusiveGateway' 也可能是 'bpmn:exclusiveGateway'
+ */
+function typeMatch(t, expected) {
+  if (!t || !expected) return false
+  return String(t).toLowerCase() === String(expected).toLowerCase()
+}
+
+/** 判断当前节点是否可编辑 */
+const isEditableTask = computed(() => typeMatch(nodeType.value, BPMN_NODE_TYPES.USER_TASK))
+const isEditableGateway = computed(() => typeMatch(nodeType.value, BPMN_NODE_TYPES.EXCLUSIVE_GATEWAY))
+
+/**
  * 每个字段用独立 computed getter/setter
- * v-model="nodeName" 时：
- *   读 → get() 返回当前值
- *   写 → set(val) 合并新值到 properties 并 emit('update')
- *
- * 为什么不直接用 computed propsData + v-model propsData.nodeName？
- *   因为 getter 返回的是新对象 {...props.properties}，
- *   v-model 对对象属性写操作只改临时对象，不会触发 computed setter。
  */
 function makeField(fieldName, fallback = '') {
   return computed({
@@ -53,10 +64,6 @@ const skipRule = makeField('skipRule', '')
 const condition = makeField('condition', '')
 const trueLabel = makeField('trueLabel', '')
 const falseLabel = makeField('falseLabel', '')
-
-/** 判断当前节点是否可编辑 */
-const isEditableTask = computed(() => nodeType.value === BPMN_NODE_TYPES.USER_TASK)
-const isEditableGateway = computed(() => nodeType.value === BPMN_NODE_TYPES.EXCLUSIVE_GATEWAY)
 </script>
 
 <template>

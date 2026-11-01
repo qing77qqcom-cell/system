@@ -32,7 +32,6 @@ import {
   Warning,
   List,
   CircleCheck,
-  Timer,
   Collection,
   UserFilled,
   Avatar,
@@ -114,29 +113,40 @@ export const ROLE_MENU_TREE = {
       title: '系统设置',
       icon: Setting,
       children: [
-        { index: '/systemcontrol',             title: '用户管理',     icon: User },
-        { index: '/systemcontrol/rolecontrol',  title: '角色权限',     icon: Lock },
-        { index: '/systemcontrol/deptcontrol',  title: '组织架构',     icon: Location },
+        // —— 组织与权限管理 ——
         {
-          index: '/systemcontrol/approval-flow',
-          title: '审批流程配置',
+          index: '/systemcontrol/org-perm',
+          title: '组织与权限管理',
+          icon: User,
+          children: [
+            { index: '/systemcontrol',              title: '用户管理' },
+            { index: '/systemcontrol/deptcontrol',  title: '组织架构' },
+            { index: '/systemcontrol/rolecontrol',  title: '角色与权限' },
+          ],
+        },
+
+        // —— 流程与规则配置 ——
+        {
+          index: '/systemcontrol/flow-rule',
+          title: '流程与规则配置',
           icon: Document,
           children: [
-            { index: '/systemcontrol/approval-flow?tab=list',   title: '流程列表' },
-            { index: '/systemcontrol/approval-flow?tab=editor', title: '流程编辑器' },
+            {
+              index: '/systemcontrol/approval-flow',
+              title: '审批流程',
+              children: [
+                { index: '/systemcontrol/approval-flow?tab=list',   title: '流程列表' },
+                { index: '/systemcontrol/approval-flow?tab=editor', title: '流程编辑器' },
+              ],
+            },
+            { index: '/systemcontrol/sla-config?tab=rules',    title: 'SLA 时效规则' },
+            { index: '/systemcontrol/sla-config?tab=calendar',  title: '工作日历' },
           ],
         },
+
+        // —— 基础数据配置 ——
         {
-          index: '/systemcontrol/sla-config',
-          title: 'SLA 时效配置',
-          icon: Timer,
-          children: [
-            { index: '/systemcontrol/sla-config?tab=rules',   title: '时效规则' },
-            { index: '/systemcontrol/sla-config?tab=calendar', title: '工作日历' },
-          ],
-        },
-        {
-          index: '/systemcontrol/basic-config',
+          index: '/systemcontrol/basic',
           title: '基础数据配置',
           icon: Collection,
           children: [
@@ -146,7 +156,17 @@ export const ROLE_MENU_TREE = {
             { index: '/systemcontrol/basic-config?tab=params',   title: '系统参数' },
           ],
         },
-        { index: '/systemcontrol/userlogcontrol', title: '操作日志', icon: Files },
+
+        // —— 安全与审计 ——
+        {
+          index: '/systemcontrol/security',
+          title: '安全与审计',
+          icon: Lock,
+          children: [
+            { index: '/systemcontrol/loginlogcontrol', title: '登录日志' },
+            { index: '/systemcontrol/userlogcontrol',  title: '操作日志' },
+          ],
+        },
       ],
     },
   ],

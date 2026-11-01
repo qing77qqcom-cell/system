@@ -78,6 +78,28 @@ export const P0_DEFAULT_GRAPH = {
   ],
 }
 
+/**
+ * 统一从 graphModel 拿所有节点
+ * LogicFlow render 后节点先加到 nodeModelMap 里，gm.nodes 数组稍后才同步
+ * 所以优先从 nodeModelMap 拿（更快、更可靠）
+ */
+function getAllNodes(gm) {
+  if (!gm) return []
+  if (gm.nodeModelMap) {
+    const vals = Object.values(gm.nodeModelMap)
+    if (vals.length) return vals
+  }
+  return gm.nodes || gm.nodeModels || []
+}
+function getAllEdges(gm) {
+  if (!gm) return []
+  if (gm.edgeModelMap) {
+    const vals = Object.values(gm.edgeModelMap)
+    if (vals.length) return vals
+  }
+  return gm.edges || gm.edgeModels || []
+}
+
 export function useLogicFlow() {
   // 用 shallowRef 避免 LogicFlow 实例被 Vue 深层响应式代理（会破坏内部原型链）
   const lf = shallowRef(null)
@@ -139,11 +161,24 @@ export function useLogicFlow() {
     // 默认种子画布（后续改为从后端加载）
     lf.value.render(P0_DEFAULT_GRAPH)
 
-    // 适配尺寸（容器可能刚挂载，下一拍再 fitView）
-    requestAnimationFrame(() => {
-      lf.value?.fitView(80)
-      ready.value = true
-    })
+    // 多拍等待让 LogicFlow 内部完全初始化（BPMN 节点尺寸、transformModel 等）
+    // 等节点模型全部就绪后再 fitView，避免 matrix(NaN)
+    let tries = 0
+    const waitAndFit = () => {
+      tries++
+      if (!lf.value) return
+      const gm = lf.value.graphModel
+      const ns = getAllNodes(gm)
+      const allReady = ns.length > 0 && ns.every(n => Number.isFinite(n.width) && Number.isFinite(n.height) && n.width > 0)
+      if (allReady || tries > 20) {
+        ready.value = true
+        // 延迟一帧让 watcher 的 nextTick 也有时间准备
+        requestAnimationFrame(() => safeFitView(80))
+      } else {
+        requestAnimationFrame(waitAndFit)
+      }
+    }
+    requestAnimationFrame(waitAndFit)
   }
 
   /** 销毁实例，防止内存泄漏（onBeforeUnmount 调用） */
@@ -188,10 +223,10 @@ export function useLogicFlow() {
       }
     }
 
-    // 策略 3: 手动从 graphModel.nodes / graphModel.edges 数组拿
+    // 策略 3: 手动从 graphModel.nodeModelMap / edges 拿（最可靠）
     if (!graphData?.nodes?.length && gm) {
-      const nodeSource = gm.nodes || gm.nodeModels || []
-      const edgeSource = gm.edges || gm.edgeModels || []
+      const nodeSource = getAllNodes(gm)
+      const edgeSource = getAllEdges(gm)
       console.log('[useLogicFlow] strategy 3: nodeSource=', nodeSource.length, 'edgeSource=', edgeSource.length)
       graphData = {
         nodes: nodeSource.map((n) => ({
@@ -253,25 +288,21 @@ export function useLogicFlow() {
     console.log('[useLogicFlow] importGraphData:', data.nodes?.length || 0, 'nodes,', data.edges?.length || 0, 'edges')
     lf.value.clearData()
     if (data.nodes?.length) {
-      // LogicFlow render 后节点模型可能还没完全初始化，等两个 rAF 再 fitView
       lf.value.render(data)
       applyNodeLabels()
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          try {
-            // 只在有有效 bounds 时 fitView
-            const bounds = lf.value.getGraphBounds?.()
-            if (bounds && Number.isFinite(bounds.width) && bounds.width > 0) {
-              lf.value.fitView(40)
-              console.log('[useLogicFlow] fitView ✅ bounds:', bounds.width.toFixed(0), 'x', bounds.height.toFixed(0))
-            } else {
-              console.warn('[useLogicFlow] fitView SKIP: invalid bounds', bounds)
-            }
-          } catch (e) {
-            console.warn('[useLogicFlow] fitView error:', e.message)
-          }
-        })
-      })
+      // 等节点模型完全初始化（width/height 就绪）后再 safeFitView
+      let tries = 0
+      const waitAndFit = () => {
+        tries++
+        const ns = getAllNodes(lf.value?.graphModel)
+        const allReady = ns.length > 0 && ns.every(n => Number.isFinite(n.width) && n.width > 0)
+        if (allReady || tries > 15) {
+          requestAnimationFrame(() => safeFitView(40))
+        } else {
+          requestAnimationFrame(waitAndFit)
+        }
+      }
+      requestAnimationFrame(waitAndFit)
     }
   }
 
@@ -281,19 +312,19 @@ export function useLogicFlow() {
    */
   function applyNodeLabels() {
     if (!lf.value) return
-    const allNodes = lf.value.getGraphData()?.nodes || []
+    // 从 nodeModelMap 拿节点（比 gm.nodes 更早有数据）
+    const allNodes = getAllNodes(lf.value.graphModel)
     for (const n of allNodes) {
-      const nodeModel = lf.value.graphModel.getNodeModelById(n.id)
-      if (!nodeModel) continue
       const label =
         n.properties?.nodeName ||
         (n.type === BPMN_NODE_TYPES.START ? '开始' :
          n.type === BPMN_NODE_TYPES.END ? '结束' :
          n.type === BPMN_NODE_TYPES.EXCLUSIVE_GATEWAY ? '条件' : '')
       if (label) {
-        // LogicFlow NodeModel 用 setText(text) 改显示文字
-        if (nodeModel.setText) nodeModel.setText(label)
-        else nodeModel.text = label
+        try {
+          if (n.setText) n.setText(label)
+          else n.text = label
+        } catch { /* ignore */ }
       }
     }
   }
@@ -304,9 +335,92 @@ export function useLogicFlow() {
     lf.value.clearData()
   }
 
-  /** 自动缩放适配整个画布，padding 小一点 → 节点显示比例合适 */
+  /**
+   * 安全的 fitView — 自己算 bounds，自己算 scale/translate，直接操作 transformModel
+   * 完全绕过 LogicFlow 内部 fitView 可能产生 matrix(NaN) 的路径
+   */
+  function safeFitView(padding = 40) {
+    if (!lf.value) return
+    try {
+      const gm = lf.value.graphModel
+      const ns = getAllNodes(gm)
+      if (!ns.length) { console.warn('[safeFitView] no nodes in nodeModelMap'); return }
+
+      // 1. 自己算 bounds（比 LF 内部 getGraphBounds 更可靠）
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+      for (const n of ns) {
+        if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) continue
+        const w = Number.isFinite(n.width) ? n.width : 0
+        const h = Number.isFinite(n.height) ? n.height : 0
+        if (w <= 0 || h <= 0) continue
+        minX = Math.min(minX, n.x - w/2); minY = Math.min(minY, n.y - h/2)
+        maxX = Math.max(maxX, n.x + w/2); maxY = Math.max(maxY, n.y + h/2)
+      }
+
+      if (!Number.isFinite(minX) || !Number.isFinite(minY) ||
+          (maxX - minX) <= 0 || (maxY - minY) <= 0) {
+        console.warn('[safeFitView] SKIP: invalid bounds', { minX, minY, maxX, maxY })
+        return
+      }
+
+      // 2. 拿容器尺寸
+      const container = gm.rootEl
+      const cw = container?.clientWidth || 0
+      const ch = container?.clientHeight || 0
+      if (cw <= 0 || ch <= 0) {
+        console.warn('[safeFitView] SKIP: invalid container size', cw, ch)
+        return
+      }
+
+      // 3. 算 scale 和 translate
+      const graphW = maxX - minX + padding * 2
+      const graphH = maxY - minY + padding * 2
+      const scale = Math.min(cw / graphW, ch / graphH)
+      if (!Number.isFinite(scale) || scale <= 0 || scale > 10) {
+        console.warn('[safeFitView] SKIP: invalid scale', scale)
+        return
+      }
+
+      const graphCenterX = (minX + maxX) / 2
+      const graphCenterY = (minY + maxY) / 2
+      const translateModel = gm.transform
+      if (!translateModel) { console.warn('[safeFitView] no transform model'); return }
+
+      // 4. 直接设 transform（等价于 matrix(scale,0,0,scale,tx,ty)）
+      const tx = cw / 2 - graphCenterX * scale
+      const ty = ch / 2 - graphCenterY * scale
+      if (!Number.isFinite(tx) || !Number.isFinite(ty)) {
+        console.warn('[safeFitView] SKIP: invalid translate', tx, ty)
+        return
+      }
+
+      translateModel.SCALE_X = scale
+      translateModel.SCALE_Y = scale
+      translateModel.TRANSLATE_X = tx
+      translateModel.TRANSLATE_Y = ty
+
+      // 5. 强制触发重绘
+      if (typeof translateModel.setTransform === 'function') {
+        translateModel.setTransform(scale, scale, tx, ty)
+      }
+      // 刷新视口
+      if (typeof gm.refresh === 'function') {
+        gm.refresh()
+      } else if (typeof lf.value.render === 'function') {
+        // render 太贵，尝试只刷新 viewBox
+        const svg = container?.querySelector?.('svg')
+        if (svg) svg.setAttribute('transform', `matrix(${scale},0,0,${scale},${tx},${ty})`)
+      }
+
+      console.log('[safeFitView] ✅ scale=', scale.toFixed(2), 'tx=', tx.toFixed(0), 'ty=', ty.toFixed(0))
+    } catch (e) {
+      console.warn('[safeFitView] error:', e.message)
+    }
+  }
+
+  /** 对外暴露的 fitView — 内部用 safeFitView 包装 */
   function fitView(padding = 40) {
-    lf.value?.fitView(padding)
+    safeFitView(padding)
   }
 
   /**
@@ -319,6 +433,8 @@ export function useLogicFlow() {
     if (!lf.value) return
     const id = `${nodeType.split(':')[1]}_${Date.now()}`
     lf.value.addNode({ id, type: nodeType, x, y, properties })
+    // 加完自动 apply labels（让新节点显示业务名而不是 type 名）
+    setTimeout(applyNodeLabels, 0)
   }
 
   /**
@@ -341,9 +457,9 @@ export function useLogicFlow() {
       // 旧版 fallback：深拷贝 properties 再整个替换
       node.properties = { ...(node.properties || {}), ...properties }
     }
-    // 如果改了 nodeName，同步更新画布上的显示文字
+    // 如果改了 nodeName，同步更新画布上的显示文字（LogicFlow 用 setText）
     if (properties.nodeName) {
-      node.setTextContent?.(properties.nodeName)
+      try { node.setText?.(properties.nodeName) || (node.text = properties.nodeName) } catch { /* ignore */ }
     }
   }
 

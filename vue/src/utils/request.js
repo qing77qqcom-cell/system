@@ -38,8 +38,12 @@ service.interceptors.response.use(
       console.log(
         `%c[HTTP] ← ${method?.toUpperCase()} ${url}  ${response.status}  ${ms}ms`,
         'color:#2e7d32;font-weight:600',
-        response.data,
+        response.data instanceof Blob ? `[Blob ${response.data.size}B]` : response.data,
       )
+    }
+    // Blob 下载（导出 CSV/Excel）：跳过 { code, message, data } 信封解包，直接返回 Blob
+    if (response.config.responseType === 'blob' || response.data instanceof Blob) {
+      return response.data
     }
     return response.data.data
   },

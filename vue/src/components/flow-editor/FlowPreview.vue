@@ -5,13 +5,12 @@
  * 逻辑：
  *   1. 按 edges 拓扑排序
  *   2. 从 Start 开始，沿着 edges 每步高亮一个节点（动画 800ms）
- *   3. 遇到 ExclusiveGateway → 暂停，弹 ElMessageBox 让用户选走 true 还是 false 出口
+ *   3. 遇到 ExclusiveGateway → 暂停，显示内置的分支选择器让用户选
  *   4. 到 End → 结束
  *
  * 入参 graphData 结构同 LogicFlow exportGraphData()
  */
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { ElMessageBox } from 'element-plus'
 import { Close } from '@element-plus/icons-vue'
 import { BPMN_NODE_TYPES } from '@/composables/useLogicFlow'
 
@@ -30,14 +29,15 @@ const visitedNodeIds = ref(new Set())
 const logs = ref([])
 // 是否正在执行
 const running = ref(false)
-// 定时器 ID
-let timer = null
+
+// Gateway 分支选择器状态
+const gatewayChoice = ref(null)   // { condition, choices: [{target, label}], }
+let resolveGateway = null          // Promise resolver
 
 // ===== 预计算：拓扑图 =====
 const graph = computed(() => {
   const { nodes = [], edges = [] } = props.graphData
   const nodeMap = Object.fromEntries(nodes.map((n) => [n.id, n]))
-  // adjacency: sourceNodeId → [{ targetNodeId, edge }]
   const adjacency = {}
   const indegree = {}
   for (const n of nodes) { adjacency[n.id] = []; indegree[n.id] = 0 }
@@ -52,50 +52,52 @@ const graph = computed(() => {
 
 // 找 Start 节点
 const startNodeId = computed(() => {
-  const start = props.graphData?.nodes?.find((n) => n.type === BPMN_NODE_TYPES.START)
+  const start = props.graphData?.nodes?.find((n) =>
+    String(n.type).toLowerCase() === BPMN_NODE_TYPES.START.toLowerCase()
+  )
   return start?.id || null
 })
 
 // ===== 动画执行 =====
 function delay(ms) { return new Promise((r) => setTimeout(r, ms)) }
 
-async function pickGatewayBranch(gatewayNodeId) {
-  /**
-   * 条件分支处理：
-   * BPMN ExclusiveGateway 有两个出口边（LogicFlow 默认 true/false port）
-   * 让用户选一个继续走
-   */
+/**
+ * 条件分支处理：弹出内置选择器，等用户选了再 resolve
+ * 不用 ElMessageBox.prompt — 内嵌 select 不生效
+ */
+function pickGatewayBranch(gatewayNodeId) {
   const neighbors = graph.value.adjacency[gatewayNodeId] || []
-  if (neighbors.length <= 1) return neighbors[0]?.target
+  if (neighbors.length <= 1) return Promise.resolve(neighbors[0]?.target)
 
   const node = graph.value.nodeMap[gatewayNodeId]
   const gateLabel = node?.properties?.condition || node?.text || '条件分支'
+  const gatewayId = node?.properties?.nodeName || node?.id?.substring?.(0, 20) || '条件节点'
 
-  // 构建选项
+  // 构建选项：优先用边的 text（用户可能在 LogicFlow 里标了 true/false），否则按顺序标 分支1/分支2
   const choices = neighbors.map((n, i) => {
-    const label = n.edge?.text || (i === 0 ? 'true' : 'false')
-    return { target: n.target, label }
+    const edgeLabel = n.edge?.text?.value || n.edge?.text || ''
+    const targetNode = graph.value.nodeMap[n.target]
+    const targetLabel = targetNode?.properties?.nodeName || targetNode?.text || targetNode?.id?.substring?.(0, 20) || `节点${i + 1}`
+    return {
+      target: n.target,
+      label: edgeLabel || `分支 ${i + 1}`,
+      targetLabel,
+    }
   })
 
-  try {
-    const { value } = await ElMessageBox.prompt(
-      `<div style="line-height:1.8;"><div>条件: <code>${gateLabel}</code></div>
-       <div>请选择走哪个出口：</div>
-       <select id="preview-gateway-select" style="margin-top:8px;padding:6px 10px;width:100%;">
-         ${choices.map((c, i) => `<option value="${i}">${c.label} → 下一个节点</option>`).join('')}
-       </select></div>`,
-      '条件分支',
-      {
-        dangerouslyUseHTMLString: true,
-        confirmButtonText: '继续',
-        showCancelButton: false,
-      }
-    )
-    const idx = Number(value) || 0
-    return choices[idx]?.target || choices[0]?.target
-  } catch {
-    return choices[0]?.target
+  gatewayChoice.value = { gatewayId, gateLabel, choices }
+
+  return new Promise((resolve) => {
+    resolveGateway = resolve
+  })
+}
+
+function selectBranch(target) {
+  if (resolveGateway) {
+    resolveGateway(target)
+    resolveGateway = null
   }
+  gatewayChoice.value = null
 }
 
 async function run() {
@@ -112,7 +114,7 @@ async function run() {
   let cur = startNodeId.value
   pushLog('start', '▶ 流程开始')
 
-  const maxSteps = 50 // 防死循环
+  const maxSteps = 50
   let step = 0
 
   while (cur && step < maxSteps) {
@@ -120,32 +122,38 @@ async function run() {
     const node = graph.value.nodeMap[cur]
     if (!node) break
 
+    const nodeType = String(node.type).toLowerCase()
+
     // 高亮当前节点
     currentNodeId.value = cur
     visitedNodeIds.value.add(cur)
 
-    if (node.type === BPMN_NODE_TYPES.END) {
+    // End 节点 → 结束
+    if (nodeType === BPMN_NODE_TYPES.END.toLowerCase()) {
       pushLog('end', '◼ 流程结束')
       break
     }
 
     // 等一下让用户看清
-    await delay(800)
+    await delay(600)
 
     // 处理不同类型的节点
-    if (node.type === BPMN_NODE_TYPES.START) {
+    if (nodeType === BPMN_NODE_TYPES.START.toLowerCase()) {
       pushLog('info', 'Start 节点 → 继续')
-    } else if (node.type === BPMN_NODE_TYPES.USER_TASK) {
+    } else if (nodeType === BPMN_NODE_TYPES.USER_TASK.toLowerCase()) {
       const strategyLabel = node.properties?.approverStrategy || '-'
       const nodeLabel = node.properties?.nodeName || node.text || '审批节点'
-      pushLog('task', `☑ 审批节点「${nodeLabel}」策略=${strategyLabel}`)
-    } else if (node.type === BPMN_NODE_TYPES.EXCLUSIVE_GATEWAY) {
+      pushLog('task', `☑ 审批「${nodeLabel}」策略=${strategyLabel}`)
+    } else if (nodeType === BPMN_NODE_TYPES.EXCLUSIVE_GATEWAY.toLowerCase()) {
       pushLog('gateway', `◇ 条件分支「${node.properties?.condition || node.text || '-'}」`)
-      // 让用户选分支
+      // 让用户选分支（内置选择器）
       const next = await pickGatewayBranch(cur)
-      if (!next) break
+      if (!next) {
+        pushLog('error', 'Gateway 没有可用出口')
+        break
+      }
       cur = next
-      await delay(300)
+      await delay(200)
       continue
     }
 
@@ -162,13 +170,16 @@ function pushLog(type, message) {
   logs.value.push({ type, message, time: new Date().toLocaleTimeString() })
 }
 
-// 执行
 onMounted(() => {
   run().catch((e) => console.error('[FlowPreview] run error:', e))
 })
 
 onBeforeUnmount(() => {
-  if (timer) clearTimeout(timer)
+  // 防止组件销毁时 Promise 还没 resolve
+  if (resolveGateway) {
+    resolveGateway(null)
+    resolveGateway = null
+  }
 })
 </script>
 
@@ -201,6 +212,28 @@ onBeforeUnmount(() => {
                 {{ n.properties?.nodeName || n.text || n.type.split(':')[1] || '节点' }}
               </span>
               <span class="node-sub">{{ n.type.split(':')[1] }}</span>
+            </div>
+          </div>
+
+          <!-- 条件分支选择器（Gateway 暂停时出现） -->
+          <div v-if="gatewayChoice" class="gateway-picker">
+            <div class="gateway-title">
+              <span class="gateway-icon">◇</span>
+              条件分支：{{ gatewayChoice.gatewayId }}
+            </div>
+            <div class="gateway-condition" v-if="gatewayChoice.gateLabel !== '条件分支'">
+              条件：<code>{{ gatewayChoice.gateLabel }}</code>
+            </div>
+            <div class="gateway-choices">
+              <button
+                v-for="(c, i) in gatewayChoice.choices"
+                :key="c.target"
+                class="gateway-btn"
+                @click="selectBranch(c.target)"
+              >
+                <span class="btn-label">{{ c.label }}</span>
+                <span class="btn-arrow">→ {{ c.targetLabel }}</span>
+              </button>
             </div>
           </div>
         </div>
@@ -245,9 +278,9 @@ onBeforeUnmount(() => {
 .preview-modal {
   background: #fff;
   border-radius: 12px;
-  width: 720px;
+  width: 780px;
   max-width: 92vw;
-  max-height: 80vh;
+  max-height: 82vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -278,6 +311,8 @@ onBeforeUnmount(() => {
   border-right: 1px solid #e6eef7;
   overflow-y: auto;
   background: #fafbfc;
+  display: flex;
+  flex-direction: column;
 }
 .graph-title {
   font-size: 12px;
@@ -321,6 +356,72 @@ onBeforeUnmount(() => {
 
 .node-label { font-size: 13px; color: #1e293b; flex: 1; }
 .node-sub { font-size: 10px; color: #94a3b8; text-transform: uppercase; }
+
+/* === Gateway 选择器 === */
+.gateway-picker {
+  margin-top: 16px;
+  padding: 14px;
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  border: 1px solid #fbbf24;
+  border-radius: 8px;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.gateway-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #92400e;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gateway-icon { color: #f59e0b; font-size: 16px; }
+
+.gateway-condition {
+  font-size: 11px;
+  color: #78350f;
+  margin-bottom: 10px;
+}
+.gateway-condition code {
+  background: #fef3c7;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+.gateway-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gateway-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid #fbbf24;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #1e293b;
+  transition: all 0.2s;
+}
+.gateway-btn:hover {
+  background: #fef3c7;
+  border-color: #f59e0b;
+  transform: translateX(2px);
+}
+.btn-label { font-weight: 500; color: #92400e; }
+.btn-arrow { font-size: 11px; color: #78350f; }
 
 .preview-log {
   flex: 1;
