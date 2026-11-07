@@ -41,23 +41,28 @@ import {
   Wallet,
 } from '@element-plus/icons-vue'
 
-// ============== 一级菜单（Layout.vue 顶栏）==============
-// 和 Layout.vue 的 ROLE_MENUS 保持一致，这里导出给所有组件统一引用
-export const TOP_MENUS = {
-  '超级管理员': [
-    { index: '/workbench',     title: '工作台',   icon: Tickets },
-    { index: '/systemcontrol', title: '系统设置', icon: Setting },
-  ],
-  '技术部部长': [
-    { index: '/workbench',       title: '工作台',   icon: Tickets },
-    { index: '/approval-center', title: '审批中心', icon: Lock },
-    { index: '/team-manage',     title: '团队管理', icon: UserFilled },
-  ],
-  '技术部普通员工': [
-    { index: '/workbench',          title: '工作台',   icon: Tickets },
-    { index: '/work-orders/create', title: '工单创建', icon: Files },
-    { index: '/help',               title: '帮助',     icon: HelpFilled },
-  ],
+// ============== 一级菜单全集（Layout.vue 顶栏）==============
+// 所有可能的一级菜单集合，每项加 perm 标记（对应 PERMISSION_CATALOG 的 key）
+// - 有 perm 的项：必须 hasPerm(perm) 才显示
+// - 无 perm 的项（如帮助中心）：所有人可见
+// Layout.vue visibleNavs 按权限码过滤此全集
+export const TOP_MENUS_ALL = [
+  { index: '/workbench',           title: '工作台',   icon: Tickets,    perm: 'menu:workbench' },
+  { index: '/work-orders/create',  title: '工单创建', icon: Files,      perm: 'menu:work-order-create' },
+  { index: '/systemcontrol',       title: '系统设置', icon: Setting,    perm: 'menu:system-config' },
+  { index: '/approval-center',     title: '审批中心', icon: Lock,       perm: 'menu:approval-center' },
+  { index: '/team-manage',         title: '团队管理', icon: UserFilled, perm: 'menu:team-manage' },
+  { index: '/help',                title: '帮助',     icon: HelpFilled },  // 无 perm = 全员可见
+]
+
+/**
+ * 取某角色可看到的一级菜单（按权限码过滤 TOP_MENUS_ALL）
+ * @param {Function} hasPerm - auth.hasPerm 绑定函数
+ * @returns {Array} 过滤后的一级菜单数组
+ */
+export function getTopMenusByPerm(hasPerm) {
+  if (typeof hasPerm !== 'function') return TOP_MENUS_ALL
+  return TOP_MENUS_ALL.filter((nav) => !nav.perm || hasPerm(nav.perm))
 }
 
 // ============== 完整菜单树（含二级/三级）==============
@@ -65,7 +70,7 @@ export const TOP_MENUS = {
 export const ROLE_MENU_TREE = {
 
   // ===== 超级管理员 =====
-  '超级管理员': [
+  'admin': [
     {
       index: '/workbench',
       title: '工作台',
@@ -139,8 +144,15 @@ export const ROLE_MENU_TREE = {
                 { index: '/systemcontrol/approval-flow?tab=editor', title: '流程编辑器' },
               ],
             },
-            { index: '/systemcontrol/sla-config?tab=rules',    title: 'SLA 时效规则' },
-            { index: '/systemcontrol/sla-config?tab=calendar',  title: '工作日历' },
+            {
+              index: '/systemcontrol/sla-config',
+              title: 'SLA 时效配置',
+              children: [
+                { index: '/systemcontrol/sla-config?tab=rules',   title: '时效规则' },
+                { index: '/systemcontrol/sla-config?tab=events',  title: '事件日志' },
+                { index: '/systemcontrol/sla-config?tab=calendar', title: '工作日历' },
+              ],
+            },
           ],
         },
 
@@ -172,7 +184,7 @@ export const ROLE_MENU_TREE = {
   ],
 
   // ===== 技术部部长 =====
-  '技术部部长': [
+  'leader': [
     {
       index: '/workbench',
       title: '工作台',
@@ -239,7 +251,7 @@ export const ROLE_MENU_TREE = {
   ],
 
   // ===== 技术部普通员工 =====
-  '技术部普通员工': [
+  'staff': [
     {
       index: '/workbench',
       title: '工作台',
@@ -319,11 +331,4 @@ export const ROLE_MENU_TREE = {
 export function getSubTree(role, topIndex) {
   const tree = ROLE_MENU_TREE[role] || []
   return tree.find((m) => m.index === topIndex) || null
-}
-
-/**
- * 取当前角色的一级菜单数组（Layout.vue 顶栏用）
- */
-export function getTopMenus(role) {
-  return TOP_MENUS[role] || []
 }

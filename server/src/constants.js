@@ -1,10 +1,17 @@
 // 业务常量：严格对应 docs/database-design.md 枚举与 api-design.md §0.2 权限矩阵
 
 // 3 个登录角色（内置财务部无登录账号，仅作为审批队列标识）
+// roles 母体表存储 code + name + description，users.role 存 role_code
 export const ROLES = {
-  ADMIN: '超级管理员',
-  LEADER: '技术部部长',
-  STAFF: '技术部普通员工',
+  ADMIN: 'admin',
+  LEADER: 'leader',
+  STAFF: 'staff',
+}
+// role_code → 中文名称（与 roles.name 一致，用于日志/API 输出）
+export const ROLE_LABELS = {
+  admin: '超级管理员',
+  leader: '部门部长',
+  staff: '普通员工',
 }
 export const ROLE_LIST = Object.values(ROLES)
 export const BUILTIN_FINANCE = 'builtin_finance' // 内置财务部队列标识

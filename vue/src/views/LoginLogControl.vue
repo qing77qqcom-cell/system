@@ -1,4 +1,5 @@
 <script setup>
+defineOptions({ name: 'LoginLog' })
 /**
  * 登录日志管理页
  * 技术：el-table-v2（Element Plus 原生虚拟滚动）+ 后端分页无限加载
@@ -125,21 +126,22 @@ async function handleExport() {
     const blob = await request.get('/logs/login-logs/export', {
       params,
       responseType: 'blob',
-    })
+    })//拿到文件流
 
     // 解析后端 Content-Disposition 里的文件名（如果有）
     // request 拦截器里拿不到 response headers（只返回了 response.data），
     // 所以这里用时间戳兜底
+    //触发下载
     const defaultName = `login-logs-${new Date().toISOString().slice(0, 10)}.csv`
 
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = defaultName
+    a.download = defaultName//文件名
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    URL.revokeObjectURL(url)//释放内存
 
     ElMessage.success('导出完成')
   } catch (e) {

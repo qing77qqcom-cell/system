@@ -30,10 +30,52 @@ const validateProfile = (body) => {
   return { name, role: body.role, dept: body.role === ROLES.ADMIN ? dept : dept, email }
 }
 
-// GET /api/users —— 全量列表（不含密码哈希）
+// GET /api/users —— 列表（keyword/role/dept/status 四筛选 + 分页）
+// Query params: keyword, role, dept, status, page(默认1), pageSize(默认10)
 router.get('/', async (req, res) => {
-  const { rows } = await query(`SELECT ${USER_COLS} FROM users ORDER BY id`)
-  ok(res, rows.map(toUserDTO))
+  const {
+    keyword = '', role = '', dept = '', status = '',
+    page = '1', pageSize = '10',
+  } = req.query
+
+  const p = Math.max(1, parseInt(page, 10) || 1)
+  const ps = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 10))
+  const offset = (p - 1) * ps
+
+  // 动态 WHERE
+  const conds = []
+  const args = []
+  if (keyword) {
+    args.push(`%${keyword}%`)
+    conds.push(`(username ILIKE $${args.length} OR name ILIKE $${args.length} OR email ILIKE $${args.length})`)
+  }
+  if (role) { args.push(role); conds.push(`role = $${args.length}`) }
+  if (dept) {
+    args.push(dept)
+    // admin dept 为 NULL 时也能被匹配：dept 精确相等或双方都是空字符串
+    conds.push(`COALESCE(dept, '') = $${args.length}`)
+  }
+  if (status) { args.push(status); conds.push(`status = $${args.length}`) }
+
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+
+  // 总数
+  const { rows: countRows } = await query(
+    `SELECT count(*)::int AS c FROM users ${where}`, args)
+  const total = countRows[0].c
+
+  // 分页列表
+  const { rows } = await query(
+    `SELECT ${USER_COLS} FROM users ${where} ORDER BY id ASC LIMIT $${args.length + 1} OFFSET $${args.length + 2}`,
+    [...args, ps, offset])
+
+  ok(res, {
+    total,
+    list: rows.map(toUserDTO),
+    page: p,
+    pageSize: ps,
+    totalPages: Math.max(1, Math.ceil(total / ps)),
+  })
 })
 
 // POST /api/users —— 创建；username 唯一 409；初始密码缺省 123456

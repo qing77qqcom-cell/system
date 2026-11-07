@@ -1,24 +1,40 @@
 // 前端常量（与后端 server/src/constants.js 保持镜像）
-// - ROLE 中文：后端实际返回这 3 个中文角色名
+// - ROLE 英文 code：后端 users.role 存 role_code（admin/leader/staff），roles 母体表存 name
 // - STATUS 英文枚举：后端 tickets.status 为英文枚举（10 态），此处做中文 + el-tag 颜色映射
 // - *_TAG_TYPE：纯 UI 颜色映射，与后端数据无关
 // - ANNOUNCEMENTS：演示用公告死数据（无对应后端模块）
 
 export const DEPT_OPTIONS = ['技术部', '市场部', '财务部', '人事部', '行政部']
 
-// 后端返回的中文角色名
-export const ROLE_OPTIONS = ['超级管理员', '技术部部长', '技术部普通员工']
+// 后端 users.role 存 role_code，前端显示用 ROLE_LABELS 映射中文
 export const ROLE = {
-  ADMIN: '超级管理员',
-  LEADER: '技术部部长',
-  STAFF: '技术部普通员工',
+  ADMIN: 'admin',
+  LEADER: 'leader',
+  STAFF: 'staff',
 }
+// role_code → 中文显示名
+export const ROLE_LABELS = {
+  admin: '超级管理员',
+  leader: '部门部长',
+  staff: '普通员工',
+}
+export const ROLE_OPTIONS = [
+  { value: 'admin',  label: '超级管理员' },
+  { value: 'leader', label: '部门部长' },
+  { value: 'staff',  label: '普通员工' },
+]
 
-// 角色 → el-tag 类型
+// role_code → el-tag 类型
 export const ROLE_TAG_TYPE = {
-  超级管理员: 'danger',
-  技术部部长: 'warning',
-  技术部普通员工: 'info',
+  admin:  'danger',
+  leader: 'warning',
+  staff:  'info',
+}
+// 兼容旧的中文 key（UserList 历史数据）
+export const ROLE_TAG_TYPE_LEGACY = {
+  '超级管理员':  'danger',
+  '技术部部长':   'warning',
+  '技术部普通员工': 'info',
 }
 
 // 用户状态 → el-tag 类型

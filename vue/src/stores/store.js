@@ -31,9 +31,9 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoggedIn = computed(() => !!token.value && !!user.value)
   const role = computed(() => user.value?.role || '')
   const userName = computed(() => user.value?.name || '未登录')
-  const isAdmin = computed(() => role.value === '超级管理员')
-  const isLeader = computed(() => role.value === '技术部部长')
-  const isStaff = computed(() => role.value === '技术部普通员工')
+  const isAdmin = computed(() => role.value === 'admin')
+  const isLeader = computed(() => role.value === 'leader')
+  const isStaff = computed(() => role.value === 'staff')
 
   // 从 permissions Set 派生 field:readonly 数组，给 DynamicForm 用
   const readonlyExtraFields = computed(() =>

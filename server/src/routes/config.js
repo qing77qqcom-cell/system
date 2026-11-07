@@ -292,6 +292,35 @@ router.patch('/sla-rules/:id', adminOnly, async (req, res) => {
   ok(res, item)
 })
 
+// ---------- SLA 事件日志（全局查询，adminOnly）----------
+// GET /api/sla-events?ticket_id=&event_type=&sla_status=&limit=50&offset=0
+router.get('/sla-events', adminOnly, async (req, res) => {
+  const params = []
+  const where = []
+  if (req.query.ticket_id) { params.push(req.query.ticket_id); where.push(`e.ticket_id = $${params.length}`) }
+  if (req.query.event_type) { params.push(req.query.event_type); where.push(`e.event_type = $${params.length}`) }
+  if (req.query.sla_status) { params.push(req.query.sla_status); where.push(`s.sla_status = $${params.length}`) }
+  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : ''
+  const limit = Math.min(parseInt(req.query.limit) || 50, 200)
+  const offset = parseInt(req.query.offset) || 0
+
+  const countSql = `SELECT count(*) FROM sla_events e LEFT JOIN sla_records s ON s.id = e.sla_id ${whereSql}`
+  const { rows: c } = await query(countSql, params)
+
+  const sql = `SELECT e.id, e.ticket_id AS "ticketId", e.sla_id AS "slaId", e.event_type AS "eventType",
+                     e.from_status AS "fromStatus", e.to_status AS "toStatus",
+                     e.event_time AS "eventTime", e.operator_id AS "operatorId",
+                     e.trigger_source AS "triggerSource", e.elapsed_duration::text AS "elapsedDuration",
+                     e.remaining_duration::text AS "remainingDuration", e.reason,
+                     s.metric_type AS "metricType", s.sla_status AS "slaStatus", s.is_breached AS "isBreached"
+                FROM sla_events e LEFT JOIN sla_records s ON s.id = e.sla_id
+                ${whereSql}
+                ORDER BY e.event_time DESC, e.id DESC
+                LIMIT ${limit} OFFSET ${offset}`
+  const { rows } = await query(sql, params)
+  ok(res, { total: parseInt(c[0].count), list: rows, page: Math.floor(offset / limit) + 1, pageSize: limit })
+})
+
 // ---------- 工作日历 ----------
 
 // GET /api/work-calendars —— 含 special_days

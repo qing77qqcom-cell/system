@@ -117,11 +117,12 @@ const constantRoutes = [
         meta: { title: '编辑工单', perm: 'menu:tickets' },
       },
 
-      // —— 系统设置（listLayOut 壳：AsideBar + router-view）——//layout的router-view
+      // —— 系统设置（MenuLayout 壳：AsideBar + router-view）——
       {
         path: 'systemcontrol',
         name: 'systemcontrol',
-        component: () => import('@/components/layout/listLayOut.vue'),
+        component: () => import('@/components/layout/MenuLayout.vue'),
+        props: { topIndex: '/systemcontrol' },
         meta: { title: '系统设置', perm: 'menu:system-config' },
         redirect: '/systemcontrol',
         children: [
@@ -152,13 +153,13 @@ const constantRoutes = [
           {
             path: 'sla-config',
             name: 'slaConfig',
-            redirect: '/systemcontrol',
+            component: () => import('@/views/SlaConfig.vue'),
             meta: { title: 'SLA 时效配置', perm: 'menu:system-config' },
           },
           {
             path: 'basic-config',
             name: 'basicConfig',
-            redirect: '/systemcontrol',
+            component: () => import('@/views/BasicConfig.vue'),
             meta: { title: '基础数据配置', perm: 'menu:system-config' },
           },
           {

@@ -1,21 +1,35 @@
 import service from '@/utils/request'
 
-// 下拉选项枚举（字典表，按 dict_type 分组返回）
-// 后端路由：GET /api/dictionaries?dict_type=xxx
-// 一次拉全量字典，前端按 dictType 分组返回
+/**
+ * 下拉选项元数据（一次性拉全，前端按用途分组返回）
+ * - 字典类（工单类型/状态/优先级）：从 GET /api/dictionaries 全量拉取后按 dictType 分组
+ * - 部门：从 GET /api/departments 拉取扁平列表，取 name 字段
+ */
 export async function getMeta() {
-  const list = await service.get('/dictionaries')
+  const [dictList, deptList] = await Promise.all([
+    service.get('/dictionaries'),
+    service.get('/departments'),
+  ])
+
+  // 按 dictType 分组
   const groups = {}
-  for (const item of list) {
+  for (const item of dictList) {
     const t = item.dictType
     if (!groups[t]) groups[t] = []
-    // 同时保留 { code, label } — code 给表单提交/接口查询用，label 给 UI 显示用
     groups[t].push({ code: item.code ?? item.label, label: item.label ?? item.code })
   }
+
+  // 部门：后端返回 { id, name, ... }[]，提取 name 字符串
+  const depts = Array.isArray(deptList)
+    ? deptList.map(d => d.name).filter(Boolean)
+    : []
+
   return {
-    depts:     groups.dept?.map(i => i.label) || [],
+    depts,
     types:     groups.ticket_type || [],          // [{ code, label }] — 工单类型需要 code 传给后端
     statuses:  groups.ticket_status || [],        // [{ code, label }] — 状态筛选需要 code
-    priorities: groups.priority?.map(i => i.label) || [],  // 纯字符串数组 ['低','中','高','紧急']
+    priorities: (groups.priority || groups.ticket_priority || []).map(i => i.label || i.code),
+    permTypes: groups.perm_type || groups.account_perm_type || [],
+    deviceTypes: groups.device_type || [],
   }
 }

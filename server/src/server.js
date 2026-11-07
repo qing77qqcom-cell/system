@@ -12,6 +12,8 @@ import { notFound, errorHandler } from './middleware/error.js'
 import authRoutes from './routes/auth.js'
 import ticketsRoutes, { slaRecordsRouter } from './routes/tickets.js'
 import userRoutes from './routes/users.js'
+import departmentsRoutes from './routes/departments.js'
+import rolesRoutes from './routes/roles.js'
 import configRoutes from './routes/config.js'
 import logsRoutes from './routes/logs.js'
 import notificationsRoutes from './routes/notifications.js'
@@ -57,6 +59,8 @@ export const createApp = () => {
   app.use('/api/tickets', ticketsRoutes)
   app.use('/api/sla-records', slaRecordsRouter)
   app.use('/api/users', userRoutes)
+  app.use('/api/departments', departmentsRoutes)
+  app.use('/api/roles', rolesRoutes)
   app.use('/api', configRoutes) // dictionaries / approval-flows / sla-rules / work-calendars / form-configs / role-permissions / notification-templates / system-params
   app.use('/api/logs', logsRoutes)
   app.use('/api/notifications', notificationsRoutes)

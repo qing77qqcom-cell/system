@@ -1,16 +1,17 @@
 <script setup>
-// LogicFlow 画布容器
-//
-// DnD 策略（关键！）：
-//   LogicFlow 在 container 内部创建自己的 SVG 画布层，会拦截容器 div 上的 dragover/drop。
-//   所以我们在 window 上注册 dragover/drop，然后用 getBoundingClientRect 判断是否在画布区域内。
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+/**
+ * LogicFlow 画布容器
+ *
+ * DnD 策略（关键！）：
+ *   LogicFlow 在 container 内部创建自己的 SVG 画布层，会拦截容器 div 上的 dragover/drop。
+ *   所以我们在 window 上注册 dragover/drop，然后用 getBoundingClientRect 判断是否在画布区域内。
+ */
+import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useLogicFlow } from '@/composables/useLogicFlow'
 
 const emit = defineEmits(['ready', 'node-select'])
 
 const containerRef = ref(null)
-const selectedNode = ref(null)
 
 const {
   ready,
@@ -26,44 +27,16 @@ const {
 } = useLogicFlow()
 
 // ===== 1. 挂载 LogicFlow =====
-// 用 ResizeObserver 等容器真正有尺寸再 init（比 setTimeout 300ms 更可靠）
-let resizeObs = null
 onMounted(() => {
   const container = containerRef.value
   if (!container) return
-
-  const tryInit = () => {
-    const rect = container.getBoundingClientRect()
-    if (rect.width > 0 && rect.height > 0) {
-      if (resizeObs) { resizeObs.disconnect(); resizeObs = null }
-      console.log('[FlowCanvas] container ready:', Math.round(rect.width), 'x', Math.round(rect.height))
-      initLF(container)
-    } else {
-      console.warn('[FlowCanvas] container still zero size:', Math.round(rect.width), 'x', Math.round(rect.height))
-    }
-  }
-
-  // 第一次立即试
-  tryInit()
-
-  // ResizeObserver 兜底：容器尺寸变化再试
-  if (!ready.value) {
-    resizeObs = new ResizeObserver(() => {
-      if (!ready.value) tryInit()
-    })
-    resizeObs.observe(container)
-    // 最多再试 10 次（约 2s），然后放弃
-    let retries = 0
-    const interval = setInterval(() => {
-      if (ready.value || retries++ > 10) { clearInterval(interval); return }
-      tryInit()
-    }, 200)
-  }
+  const rect = container.getBoundingClientRect()
+  console.log('[FlowCanvas] container:', Math.round(rect.width), 'x', Math.round(rect.height))
+  initLF(container)
 })
 
 onBeforeUnmount(() => {
   destroyLF()
-  resizeObs?.disconnect()
   window.removeEventListener('dragover', onWinDragOver)
   window.removeEventListener('drop', onWinDrop)
   window.removeEventListener('resize', fitView)
@@ -77,26 +50,21 @@ function registerSelectionListeners() {
   const lfCore = lf.value
 
   lfCore.on('node:click', ({ data }) => {
-    console.log('[FlowCanvas] node:click data.type =', data?.type, 'data.id =', data?.id, 'data.properties =', JSON.stringify(data?.properties || {}))
-    selectedNode.value = data
     emit('node-select', data)
   })
   lfCore.on('node:dblclick', ({ data }) => {
-    selectedNode.value = data
     emit('node-select', data)
   })
   lfCore.on('edge:click', () => {
-    selectedNode.value = null
     emit('node-select', null)
   })
   lfCore.on('blank:click', () => {
-    selectedNode.value = null
     emit('node-select', null)
   })
 }
 
-// ===== 3. LF ready → 注册监听 + fitView + emit('ready') =====
-import { watch, nextTick } from 'vue'
+// ===== 3. ready → 注册监听 + emit('ready') + DnD =====
+// initLF 内部已经 render 种子图 + waitAndFit 确认节点就绪，再触发 fitView/emit
 watch(ready, (v) => {
   if (!v) return
   console.log('[FlowCanvas] LogicFlow ready 🎨')
@@ -137,7 +105,7 @@ function onWinDrop(e) {
   const rect = containerRef.value.getBoundingClientRect()
   const domX = e.clientX - rect.left
   const domY = e.clientY - rect.top
-  const t = lf.value.graphModel.transform
+  const t = lf.value.graphModel.transformModel
   const scaleX = t?.SCALE_X ?? 1
   const scaleY = t?.SCALE_Y ?? 1
   const translateX = t?.TRANSLATE_X ?? 0
@@ -156,7 +124,7 @@ const api = {
   fitView,
   clearGraph,
   updateNodeProperties,
-  getSelectedNode: () => selectedNode.value,
+  getSelectedNode: () => null,
 }
 </script>
 

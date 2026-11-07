@@ -17,7 +17,7 @@
  */
 import { ref, shallowRef } from 'vue'
 import LogicFlow from '@logicflow/core'
-import { BpmnAdapter, BPMNElements, Control, SelectionSelect } from '@logicflow/extension'
+import { BPMNElements, Control, SelectionSelect } from '@logicflow/extension'
 import '@logicflow/core/dist/index.css'
 import '@logicflow/extension/dist/index.css'
 
@@ -25,9 +25,10 @@ import '@logicflow/extension/dist/index.css'
 let registered = false
 function registerExtensions() {
   if (registered) return
-  LogicFlow.use(BpmnAdapter)
-  // ⚠️ 关键：用 BPMNElements（驼峰），不是 BpmnElement（驼峰但不存在！）
-  // BPMNElements 会自动调用 lf.register() 注册所有 BPMN 节点
+  // ⚠️ 不注册 BpmnAdapter！它的 adapterIn 会把 LogicFlow 原生格式 { nodes, edges }
+  // 当成 BPMN XML 格式解析（找 bpmn:definitions），找不到就返回空数据，导致 render 失败。
+  // 我们只用 LogicFlow 原生格式（convertFlow.js 双向转换），不需要 BPMN XML 导入导出。
+  // LogicFlow.use(BpmnAdapter)  ← 故意不注册
   LogicFlow.use(BPMNElements)
   LogicFlow.use(Control)
   LogicFlow.use(SelectionSelect)
@@ -286,24 +287,22 @@ export function useLogicFlow() {
   function importGraphData(data) {
     if (!lf.value || !data) return
     console.log('[useLogicFlow] importGraphData:', data.nodes?.length || 0, 'nodes,', data.edges?.length || 0, 'edges')
-    lf.value.clearData()
-    if (data.nodes?.length) {
-      lf.value.render(data)
-      applyNodeLabels()
-      // 等节点模型完全初始化（width/height 就绪）后再 safeFitView
-      let tries = 0
-      const waitAndFit = () => {
-        tries++
-        const ns = getAllNodes(lf.value?.graphModel)
-        const allReady = ns.length > 0 && ns.every(n => Number.isFinite(n.width) && n.width > 0)
-        if (allReady || tries > 15) {
-          requestAnimationFrame(() => safeFitView(40))
-        } else {
-          requestAnimationFrame(waitAndFit)
-        }
+    // 直接 render — LogicFlow 的 render 内部 graphDataToModel 已经清空 nodeModelMap，不需要先 clearData()
+    lf.value.render(data)
+    applyNodeLabels()
+    // 等节点模型完全初始化（width/height 就绪）后再 safeFitView
+    let tries = 0
+    const waitAndFit = () => {
+      tries++
+      const ns = getAllNodes(lf.value?.graphModel)
+      const allReady = ns.length > 0 && ns.every(n => Number.isFinite(n.width) && n.width > 0)
+      if (allReady || tries > 15) {
+        requestAnimationFrame(() => safeFitView(40))
+      } else {
+        requestAnimationFrame(waitAndFit)
       }
-      requestAnimationFrame(waitAndFit)
     }
+    requestAnimationFrame(waitAndFit)
   }
 
   /**
@@ -383,8 +382,8 @@ export function useLogicFlow() {
 
       const graphCenterX = (minX + maxX) / 2
       const graphCenterY = (minY + maxY) / 2
-      const translateModel = gm.transform
-      if (!translateModel) { console.warn('[safeFitView] no transform model'); return }
+      const translateModel = gm.transformModel
+      if (!translateModel) { console.warn('[safeFitView] no transformModel'); return }
 
       // 4. 直接设 transform（等价于 matrix(scale,0,0,scale,tx,ty)）
       const tx = cw / 2 - graphCenterX * scale

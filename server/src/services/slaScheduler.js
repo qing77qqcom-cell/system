@@ -4,6 +4,7 @@ import { pool, query, withTx } from '../db.js'
 import { loadCalendar, workElapsedMs } from './calendar.js'
 import { notifyAsync } from './notify.js'
 import { insertSlaEvent, msToInterval } from './sla.js'
+import { ROLES } from '../constants.js'
 
 const METRIC_LABEL = {
   first_response: '首次响应', approval: '审批', processing: '处理',
@@ -14,7 +15,7 @@ const METRIC_LABEL = {
 const recipientsOf = async (ticketId) => {
   const { rows } = await query(
     `SELECT t.current_handler_id AS handler, t.title, t.dept,
-            (SELECT id FROM users WHERE role = '技术部部长' AND dept = t.dept AND status = '启用' ORDER BY id LIMIT 1) AS leader
+            (SELECT id FROM users WHERE role = $1 AND dept = t.dept AND status = '启用' ORDER BY id LIMIT 1) AS leader
        FROM tickets t WHERE t.id = $1`,
     [ticketId],
   )
