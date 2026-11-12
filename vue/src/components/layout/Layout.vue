@@ -16,7 +16,7 @@ const { isMobile } = useMobile()
 // ———————— 一级菜单（和之前一模一样）————————
 const visibleNavs = computed(() => {
   const roleMenus = ROLE_MENU_TREE[auth.role] || []
-  return roleMenus.map((m) => ({ index: m.index, title: m.title, icon: m.icon }))
+  return roleMenus.map((m) => ({ index: m.index, title: m.title, icon: m.icon }))//加工每一条数据，返回一个全新数组，只保留你需要的字段 index / title / icon，丢掉 children。
 })
 
 const activeMenu = computed(() => {

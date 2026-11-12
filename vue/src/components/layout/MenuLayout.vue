@@ -52,24 +52,54 @@ const groupToLeafMap = computed(() => {
   return map
 })
 
+/**
+ * 兜底算法：path → 二级菜单组 index（最长精确匹配）
+ * 用于：直接输入 URL 进入、横向 el-menu 点击跳转等 AsideBar 未触发的场景
+ *
+ * 优先用 AsideBar @menu-click 传来的 groupIndex（直接、不反推、最准确）
+ * 只有拿不到 AsideBar 事件时才走这里
+ */
 function findGroupIndexByPath(path) {
+  let bestGroup = null
+  let bestMatchLen = 0
+
   for (const m of secondMenus.value) {
-    if (findMatchingLeaf(m, path)) return m.index
+    const matchLen = findBestMatchLen(m, path)
+    if (matchLen > bestMatchLen) {
+      bestMatchLen = matchLen
+      bestGroup = m
+    }
   }
-  return secondMenus.value[0]?.index || ''
+  return bestGroup?.index || secondMenus.value[0]?.index || ''
 }
-function findMatchingLeaf(item, targetPath) {
+/** 递归找 item 子树中与 targetPath 精确匹配的最长叶子路径长度；无匹配返回 0 */
+function findBestMatchLen(item, targetPath) {
   if (!item.children?.length) {
     const itemPath = item.index.split('?')[0]
-    return targetPath.startsWith(itemPath) || itemPath.startsWith(targetPath)
+    const targetOnly = targetPath.split('?')[0]
+    if (itemPath === targetOnly || item.index === targetPath) {
+      return itemPath.length
+    }
+    return 0
   }
+  let maxLen = 0
   for (const c of item.children) {
-    if (findMatchingLeaf(c, targetPath)) return true
+    maxLen = Math.max(maxLen, findBestMatchLen(c, targetPath))
   }
-  return false
+  return maxLen
 }
 
-const activeSecondIndex = computed(() => findGroupIndexByPath(route.path))
+/**
+ * 当前激活的二级菜单组 index（横向 el-menu 高亮用）
+ * 双通道更新：
+ *   1. AsideBar @menu-click → payload.groupIndex（直接来源，最准确）
+ *   2. watch route.fullPath → 兜底（地址栏输入、横向菜单自身点击跳转）
+ */
+const activeSecondIndex = ref(findGroupIndexByPath(route.path))
+// 路由变化兜底更新（AsideBar 事件已覆盖大部分场景，这里处理直接输 URL 等情况）
+watch(() => route.fullPath, () => {
+  activeSecondIndex.value = findGroupIndexByPath(route.path)
+}, { immediate: true })
 
 function onHorizontalSelect(groupIndex) {
   const target = groupToLeafMap.value[groupIndex] || groupIndex
@@ -78,6 +108,15 @@ function onHorizontalSelect(groupIndex) {
     router.push(target)
     mobileAsideOpen.value = false
   }
+}
+
+/**
+ * AsideBar 点击任意层级叶子菜单项 → 子传父事件
+ * 路由跳转后的二级菜单高亮靠 watch route.fullPath 兜底自动联动，
+ * 这里留空；如果将来需要埋点/日志可以加在这里
+ */
+function onAsideMenuClick(_path) {
+  // 预留：将来可加埋点、统计等副作用
 }
 
 const showAside = computed(() => secondMenus.value.length > 0)
@@ -131,7 +170,7 @@ watch(isMobile, (v) => { if (!v) mobileAsideOpen.value = false })
     <div class="ml-body">
       <!-- PC 侧边栏（固定 220px 宽） -->
       <aside v-if="showAside && !isMobile" class="ml-aside">
-        <AsideBar :menus="secondMenus" />
+        <AsideBar :menus="secondMenus" @menu-click="onAsideMenuClick" />
       </aside>
 
       <!-- 移动端侧边栏抽屉 -->
@@ -144,7 +183,7 @@ watch(isMobile, (v) => { if (!v) mobileAsideOpen.value = false })
         append-to-body
       >
         <div class="mobile-aside-wrap">
-          <AsideBar :menus="secondMenus" />
+          <AsideBar :menus="secondMenus" @menu-click="onAsideMenuClick" />
         </div>
       </el-drawer>
 
